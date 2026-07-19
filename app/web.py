@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from flask import Flask, jsonify, redirect, render_template_string, request, Response
 
 from app.clause_extraction import extract_and_store_clauses, extract_and_store_jurisdiction_clauses
+from app.conflict_detection import check_submission_for_conflicts
 from app.db import get_session, init_db
 from app.ingest import (
     DEFAULT_SUBMITTED_BY,
@@ -36,6 +37,7 @@ from app.models import (
     Document,
     DocumentClause,
     DocumentSeries,
+    Flag,
     Jurisdiction,
     JurisdictionClause,
     JurisdictionDocument,
@@ -93,6 +95,21 @@ PAGE = """
     </select>
   </label>
   <button type="submit">Start new revision</button>
+</form>
+
+<form method="post" action="/check" class="new-revision">
+  <label>Check latest revision against code for
+    <select name="project_name">
+      {% for p in projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label style="flex: 0 0 auto; width: auto;">Engine
+    <select name="engine">
+      <option value="mock">mock (no API key needed)</option>
+      <option value="real">real (Claude Sonnet 5)</option>
+    </select>
+  </label>
+  <button type="submit">Check</button>
 </form>
 
 <form method="post" action="/ingest" enctype="multipart/form-data">
@@ -263,6 +280,49 @@ CLAUSES_PAGE = """
 </table>
 """
 
+FLAGS_PAGE = """
+<!doctype html>
+<title>Flags - {{ project }} {{ revision }} - Plan Review Copilot</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; font-size: 0.85rem; vertical-align: top; }
+  .label { font-family: ui-monospace, monospace; white-space: nowrap; }
+  .meta { color: #666; font-size: 0.85rem; margin-bottom: 1.5rem; }
+  .sev-high { color: #b00020; font-weight: 600; }
+  .sev-medium { color: #a15c00; font-weight: 600; }
+  .sev-low { color: #555; }
+  .placeholder-badge {
+    display: inline-block; font-size: 0.7rem; background: #fff3cd; color: #856404;
+    padding: 0.05rem 0.4rem; border-radius: 3px; margin-left: 0.4rem; cursor: help;
+  }
+</style>
+
+<p><a href="/">&larr; back</a></p>
+<h1>Flags &mdash; {{ project }} {{ revision }}</h1>
+<p class="meta">{{ flags|length }} flag(s) found</p>
+
+<table>
+  <tr><th>Severity</th><th>Clause</th><th>Explanation</th><th>Cited code sections</th><th>Model</th></tr>
+  {% for f in flags %}
+  <tr>
+    <td class="sev-{{ f.severity.value }}">{{ f.severity.value }}</td>
+    <td class="label">{{ f.clause.clause_label }}</td>
+    <td>{{ f.explanation }}</td>
+    <td>
+      {% for c in f.citations %}
+        {% if c.jurisdiction_clause %}<div>{{ c.jurisdiction_clause.clause_label }}</div>{% endif %}
+      {% endfor %}
+    </td>
+    <td>
+      {{ f.model }}
+      {% if f.is_simulated %}<span class="placeholder-badge" title="Keyword heuristic, not real model reasoning">simulated</span>{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+"""
+
 
 def _recent_rows(session):
     documents = (
@@ -393,6 +453,44 @@ def revise_document(document_id):
         "discipline": series.discipline.value,
     }
     return redirect(f"/?{urlencode(params)}")
+
+
+@app.post("/check")
+def check():
+    session = get_session()
+    project = find_project(session, request.form["project_name"])
+    if project is None:
+        return redirect("/?error=Unknown project")
+
+    submission = get_latest_or_create_submission(session, project.id)
+    use_mock = request.form.get("engine", "mock") != "real"
+    try:
+        check_submission_for_conflicts(session, submission, use_mock=use_mock)
+    except Exception as e:
+        session.rollback()
+        return redirect(f"/?error=Check failed: {e}")
+    session.commit()
+    return redirect(f"/submissions/{submission.id}/flags")
+
+
+@app.get("/submissions/<submission_id>/flags")
+def submission_flags(submission_id):
+    session = get_session()
+    submission = session.get(Submission, submission_id)
+    if submission is None:
+        return redirect("/?error=Submission not found")
+
+    # Sorted in Python, not SQL - severity is stored as text, so a SQL ORDER BY
+    # would sort alphabetically ("medium" > "low" > "high"), not by actual severity.
+    severity_rank = {"high": 0, "medium": 1, "low": 2}
+    flags = session.query(Flag).filter_by(submission_id=submission_id).all()
+    flags.sort(key=lambda f: severity_rank[f.severity.value])
+    return render_template_string(
+        FLAGS_PAGE,
+        project=submission.project.name,
+        revision=submission.revision_label,
+        flags=flags,
+    )
 
 
 @app.get("/jurisdictions")

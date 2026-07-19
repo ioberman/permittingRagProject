@@ -74,6 +74,12 @@ class ExtractionMethod(enum.Enum):
     MANUAL = "manual"
 
 
+class FlagSeverity(enum.Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class Jurisdiction(Base):
     """A jurisdiction whose building code we hold reference documentation for.
 
@@ -250,3 +256,48 @@ class DocumentClause(Base):
 
     document: Mapped["Document"] = relationship(back_populates="document_clauses")
     clause: Mapped["Clause"] = relationship(back_populates="document_clauses")
+
+
+class Flag(Base):
+    """A detected conflict/compliance issue about one project Clause, raised
+    against a specific Submission (re-checking a later revision can produce a
+    different set of flags - this is not retroactively applied to old ones).
+
+    is_simulated distinguishes a real model call from the keyword-heuristic
+    mock (app/llm_mock.py) - never let the mock's output be mistaken for the
+    real model's reasoning, per CLAUDE.md's real-vs-simulated principle.
+    """
+
+    __tablename__ = "flags"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    submission_id: Mapped[str] = mapped_column(ForeignKey("submissions.id"))
+    clause_id: Mapped[str] = mapped_column(ForeignKey("clauses.id"))
+    severity: Mapped[FlagSeverity] = mapped_column(SAEnum(FlagSeverity, native_enum=False))
+    explanation: Mapped[str]
+    model: Mapped[str]  # e.g. "mock-keyword-heuristic" or "claude-sonnet-5"
+    is_simulated: Mapped[bool]
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    submission: Mapped["Submission"] = relationship()
+    clause: Mapped["Clause"] = relationship()
+    citations: Mapped[list["FlagCitation"]] = relationship(back_populates="flag")
+
+
+class FlagCitation(Base):
+    """Supporting evidence for a Flag. Exactly one of clause_id/jurisdiction_clause_id
+    is set per row - a flag can cite jurisdiction code clauses (code-compliance
+    checks) and/or other project clauses (future cross-discipline checks)."""
+
+    __tablename__ = "flag_citations"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    flag_id: Mapped[str] = mapped_column(ForeignKey("flags.id"))
+    clause_id: Mapped[str | None] = mapped_column(ForeignKey("clauses.id"), nullable=True)
+    jurisdiction_clause_id: Mapped[str | None] = mapped_column(
+        ForeignKey("jurisdiction_clauses.id"), nullable=True
+    )
+
+    flag: Mapped["Flag"] = relationship(back_populates="citations")
+    clause: Mapped["Clause | None"] = relationship()
+    jurisdiction_clause: Mapped["JurisdictionClause | None"] = relationship()

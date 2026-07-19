@@ -4,13 +4,12 @@
 
 import os
 
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.models import Base
 
-load_dotenv()
+# .env is loaded by app/__init__.py, before any app.* submodule runs.
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./permitting.db")
 
