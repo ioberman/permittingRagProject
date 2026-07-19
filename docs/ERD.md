@@ -48,7 +48,7 @@ erDiagram
         string clause_label
         string text
         string content_hash UK "unique per document_series; drives dedup"
-        string extraction_method "pdf_text | ifc_property | manual"
+        string extraction_method "pdf_text | spec_text | ifc_property | manual"
         json location "page/bbox for 2D, ifc_guid/level/grid for BIM"
         string first_seen_document_id FK
         datetime created_at

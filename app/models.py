@@ -1,3 +1,5 @@
+# Plain English explanation: This code is responsible for defining the database schema for a document management system. It defines the structure of the database tables, including projects, submissions, document series, documents, clauses, and their relationships. The code uses SQLAlchemy to create classes that represent each table and their attributes, as well as enumerations for document types, disciplines, submission statuses, and extraction methods. The schema supports versioning of documents and deduplication of clauses across revisions.
+
 """Document/clause storage with revision history.
 
 Core identity chain: Project -> Submission (a "Rev A/B/C" upload event) ->
@@ -9,6 +11,12 @@ unchanged clause across revisions is the *same row*, referenced by multiple
 document versions via document_clauses. This is what makes revision diffing
 (added/removed/unchanged) and incremental re-check derivable from the schema
 itself, without a separate lineage table.
+
+Jurisdiction -> JurisdictionDocument -> JurisdictionClause is a separate,
+lighter-weight parallel chain for jurisdiction code reference material (not
+project submissions). No revision-tracking or cross-document dedup there yet -
+each jurisdiction document is ingested once, standalone. A Project belongs to
+exactly one Jurisdiction.
 """
 
 import enum
@@ -61,8 +69,70 @@ class SubmissionStatus(enum.Enum):
 
 class ExtractionMethod(enum.Enum):
     PDF_TEXT = "pdf_text"
+    SPEC_TEXT = "spec_text"
     IFC_PROPERTY = "ifc_property"
     MANUAL = "manual"
+
+
+class Jurisdiction(Base):
+    """A jurisdiction whose building code we hold reference documentation for.
+
+    Deliberately no revision-tracking here (unlike Submission for projects) -
+    code adoption cycles are a real future need, but not worth building before
+    a single real jurisdiction is loaded. See JurisdictionDocument/Clause.
+    """
+
+    __tablename__ = "jurisdictions"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(unique=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    documents: Mapped[list["JurisdictionDocument"]] = relationship(back_populates="jurisdiction")
+    projects: Mapped[list["Project"]] = relationship(back_populates="jurisdiction")
+
+
+class JurisdictionDocument(Base):
+    """One reference document for a jurisdiction (a code book, a local amendment)."""
+
+    __tablename__ = "jurisdiction_documents"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    jurisdiction_id: Mapped[str] = mapped_column(ForeignKey("jurisdictions.id"))
+    title: Mapped[str]
+    doc_type: Mapped[DocType] = mapped_column(SAEnum(DocType, native_enum=False))
+    file_uri: Mapped[str]
+    file_hash: Mapped[str]
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    ingested_at: Mapped[datetime] = mapped_column(default=_now)
+
+    jurisdiction: Mapped["Jurisdiction"] = relationship(back_populates="documents")
+    clauses: Mapped[list["JurisdictionClause"]] = relationship(back_populates="document")
+
+
+class JurisdictionClause(Base):
+    """A citable section of jurisdiction code text. No cross-revision dedup (yet) -
+    each row belongs to exactly one JurisdictionDocument, unlike Clause which is
+    shared across Document versions via document_clauses."""
+
+    __tablename__ = "jurisdiction_clauses"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    jurisdiction_document_id: Mapped[str] = mapped_column(ForeignKey("jurisdiction_documents.id"))
+    clause_label: Mapped[str]
+    text: Mapped[str]
+    content_hash: Mapped[str]
+    extraction_method: Mapped[ExtractionMethod] = mapped_column(
+        SAEnum(ExtractionMethod, native_enum=False)
+    )
+    location: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    document: Mapped["JurisdictionDocument"] = relationship(back_populates="clauses")
+
+    __table_args__ = (
+        UniqueConstraint("jurisdiction_document_id", "content_hash", name="uq_jurisdiction_clause_hash"),
+    )
 
 
 class Project(Base):
@@ -70,9 +140,10 @@ class Project(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
     name: Mapped[str]
-    jurisdiction: Mapped[str]
+    jurisdiction_id: Mapped[str] = mapped_column(ForeignKey("jurisdictions.id"))
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
+    jurisdiction: Mapped["Jurisdiction"] = relationship(back_populates="projects")
     submissions: Mapped[list["Submission"]] = relationship(back_populates="project")
     document_series: Mapped[list["DocumentSeries"]] = relationship(back_populates="project")
 

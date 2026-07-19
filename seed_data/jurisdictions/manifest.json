@@ -1,0 +1,17 @@
+[
+  {
+    "jurisdiction": "Chicago, IL",
+    "title": "Building Code (Title 14B)",
+    "file": "chicago_il_building_code.pdf"
+  },
+  {
+    "jurisdiction": "Loudoun County, VA",
+    "title": "Virginia Uniform Statewide Building Code (Chapter 1410)",
+    "file": "loudoun_county_va_building_code.pdf"
+  },
+  {
+    "jurisdiction": "San Diego County, CA",
+    "title": "County Building Code (Title 9, Division 2, Chapter 1)",
+    "file": "san_diego_county_ca_building_code.pdf"
+  }
+]

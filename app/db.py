@@ -1,3 +1,7 @@
+# plain english explanation: 
+# This code is responsible for setting up the database connection and session management for a Python application using SQLAlchemy. 
+# Loads environment variables, creates a database engine, initializes the database schema, and provides a function to get a session for interacting with the database.
+
 import os
 
 from dotenv import load_dotenv
