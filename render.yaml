@@ -1,0 +1,36 @@
+# Optional Render Blueprint - lets you deploy via "New > Blueprint" instead of
+# clicking through the dashboard by hand. See docs/DEPLOYMENT.md for the full
+# walkthrough (including the manual-dashboard path, which is the one to use
+# if you'd rather review each setting yourself before it's created).
+#
+# Render's blueprint spec evolves - if a field here is rejected, check
+# Render's current docs for the equivalent option rather than guessing.
+
+databases:
+  - name: plan-review-copilot-db
+    databaseName: plan_review_copilot
+    user: plan_review_copilot
+    plan: basic-256mb # pick whatever tier fits - see docs/DEPLOYMENT.md
+
+services:
+  - type: web
+    name: plan-review-copilot
+    runtime: python
+    plan: starter # sentence-transformers pulls in torch - free tier's 512MB RAM is too tight
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app.web:app
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: plan-review-copilot-db
+          property: connectionString
+      - key: STORAGE_ROOT
+        value: /var/data/storage
+      - key: ANTHROPIC_API_KEY
+        sync: false # set the real value in the Render dashboard, not here
+      - key: GROQ_API_KEY
+        sync: false
+    disk:
+      name: plan-review-storage
+      mountPath: /var/data
+      sizeGB: 1
