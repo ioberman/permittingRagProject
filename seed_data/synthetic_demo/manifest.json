@@ -1,0 +1,139 @@
+{
+  "description": "Contained, hand-labeled test set for demoing and evaluating conflict detection. Two independent tracks - see README.md.",
+  "jurisdiction_conflicts": {
+    "note": "Project clause text is synthetic (written for this test), but every cited jurisdiction clause is real, already-ingested amendment text from seed_data/jurisdictions/. Numbers in the project clauses were chosen relative to the real cited requirement. Split into one demo project per jurisdiction because retrieval narrows candidates to a single project.jurisdiction_id - a project can't span two jurisdictions.",
+    "projects": [
+      {
+        "project_name": "Demo: Chicago Labeled Conflict Set",
+        "jurisdiction": "Chicago, IL",
+        "project_file": "jurisdiction_conflicts_chicago.txt",
+        "sheet_number": "A-101",
+        "title": "Architectural General Notes (Demo)",
+        "discipline": "ARCHITECTURAL"
+      },
+      {
+        "project_name": "Demo: San Diego Labeled Conflict Set",
+        "jurisdiction": "San Diego County, CA",
+        "project_file": "jurisdiction_conflicts_san_diego.txt",
+        "sheet_number": "C-101",
+        "title": "Civil / Landscape General Notes (Demo)",
+        "discipline": "CIVIL"
+      }
+    ],
+    "pairs": [
+      {
+        "scenario": "ceiling_height",
+        "project_clause_label": "1.1",
+        "expected_verdict": "conflict",
+        "rationale": "Project specifies 7'-0\" (84in); Chicago 1207.2 requires not less than 7'-6\" (90in). Under the minimum.",
+        "jurisdiction": "Chicago, IL",
+        "jurisdiction_clause_label": "1207.2",
+        "jurisdiction_clause_id": "65c9c504-4121-431e-9553-aa8afa325c1f"
+      },
+      {
+        "scenario": "ceiling_height",
+        "project_clause_label": "1.2",
+        "expected_verdict": "no_conflict",
+        "rationale": "Project specifies 7'-6\" (90in), exactly meeting Chicago 1207.2's minimum.",
+        "jurisdiction": "Chicago, IL",
+        "jurisdiction_clause_label": "1207.2",
+        "jurisdiction_clause_id": "65c9c504-4121-431e-9553-aa8afa325c1f"
+      },
+      {
+        "scenario": "stair_guard_height",
+        "project_clause_label": "2.1",
+        "expected_verdict": "conflict",
+        "rationale": "Project specifies 32in guard height; Chicago amendment (clause label '2') requires not less than 34in for R-2 dwelling unit stairs. Under the minimum.",
+        "jurisdiction": "Chicago, IL",
+        "jurisdiction_clause_label": "2",
+        "jurisdiction_clause_id": "26b18660-76bd-4be7-91ba-18ef3adfcff2"
+      },
+      {
+        "scenario": "stair_guard_height",
+        "project_clause_label": "2.2",
+        "expected_verdict": "no_conflict",
+        "rationale": "Project specifies 36in guard height, which is at or above the 34in minimum.",
+        "jurisdiction": "Chicago, IL",
+        "jurisdiction_clause_label": "2",
+        "jurisdiction_clause_id": "26b18660-76bd-4be7-91ba-18ef3adfcff2"
+      },
+      {
+        "scenario": "stair_vertical_rise",
+        "project_clause_label": "3.1",
+        "expected_verdict": "conflict",
+        "rationale": "Project specifies a 14ft rise between landings with no intermediate landing; Chicago's amended 1011.8 caps vertical rise at 12ft between landings.",
+        "jurisdiction": "Chicago, IL",
+        "jurisdiction_clause_label": "11",
+        "jurisdiction_clause_id": "87ba7709-bafd-4a8f-a420-ae0c5dd67ba2"
+      },
+      {
+        "scenario": "stair_vertical_rise",
+        "project_clause_label": "3.2",
+        "expected_verdict": "no_conflict",
+        "rationale": "Project specifies a 10ft rise, under the 12ft cap.",
+        "jurisdiction": "Chicago, IL",
+        "jurisdiction_clause_label": "11",
+        "jurisdiction_clause_id": "87ba7709-bafd-4a8f-a420-ae0c5dd67ba2"
+      },
+      {
+        "scenario": "tree_drip_line_clearance",
+        "project_clause_label": "4.1",
+        "expected_verdict": "conflict",
+        "rationale": "Project specifies an 8ft drip-line clearance; San Diego County's amendment (clause label '1') requires a minimum 10ft drip-line clearance from combustible structures.",
+        "jurisdiction": "San Diego County, CA",
+        "jurisdiction_clause_label": "1",
+        "jurisdiction_clause_id": "cd6df1a0-b6c0-4c4c-95dd-f3b387513da1"
+      },
+      {
+        "scenario": "tree_drip_line_clearance",
+        "project_clause_label": "4.2",
+        "expected_verdict": "no_conflict",
+        "rationale": "Project specifies a 12ft drip-line clearance, above the 10ft minimum.",
+        "jurisdiction": "San Diego County, CA",
+        "jurisdiction_clause_label": "1",
+        "jurisdiction_clause_id": "cd6df1a0-b6c0-4c4c-95dd-f3b387513da1"
+      }
+    ]
+  },
+  "cross_discipline_conflicts": {
+    "note": "HYPOTHESIS / fully synthetic - no cross-discipline checker exists yet (per CLAUDE.md roadmap, this is next). These pairs are invented demo scenarios, not derived from any real project or code. They exist to give the future checker and its eval harness a known-answer fixture from day one.",
+    "project_name": "Demo: Cross-Discipline Clash Set",
+    "jurisdiction": "Chicago, IL",
+    "documents": [
+      {"file": "cross_discipline/S-101.txt", "sheet_number": "S-101", "title": "Structural Foundation & Framing Notes (Demo)", "discipline": "STRUCTURAL"},
+      {"file": "cross_discipline/M-101.txt", "sheet_number": "M-101", "title": "Mechanical Ductwork & Equipment Notes (Demo)", "discipline": "MECHANICAL"},
+      {"file": "cross_discipline/A-102.txt", "sheet_number": "A-102", "title": "Architectural Room & Door Notes (Demo)", "discipline": "ARCHITECTURAL"},
+      {"file": "cross_discipline/E-101.txt", "sheet_number": "E-101", "title": "Electrical Panel & Clearance Notes (Demo)", "discipline": "ELECTRICAL"}
+    ],
+    "pairs": [
+      {
+        "scenario": "corridor_clearance_clash",
+        "expected_verdict": "conflict",
+        "clause_a": {"sheet": "S-101", "label": "1.1"},
+        "clause_b": {"sheet": "M-101", "label": "1.1"},
+        "rationale": "Structural gives only 9'-0\" clear height in Corridor 104; mechanical duct DS-2 needs 9'-6\" clearance to bottom of insulation in the same corridor. The duct does not fit under the beam."
+      },
+      {
+        "scenario": "corridor_clearance_ok",
+        "expected_verdict": "no_conflict",
+        "clause_a": {"sheet": "S-101", "label": "1.1"},
+        "clause_b": {"sheet": "M-101", "label": "1.2"},
+        "rationale": "Duct DS-4 in the same corridor only needs 8'-6\" clearance, which fits under the 9'-0\" structural minimum."
+      },
+      {
+        "scenario": "electrical_working_space_clash",
+        "expected_verdict": "conflict",
+        "clause_a": {"sheet": "A-102", "label": "1.1"},
+        "clause_b": {"sheet": "E-101", "label": "1.1"},
+        "rationale": "Door D-12 swings into Room 118 with a 36in arc centered 6in off the north wall; Panel EP-3 on the same north wall requires a 36in clear working space per NEC. The door swing intrudes into the required electrical clearance."
+      },
+      {
+        "scenario": "electrical_working_space_ok",
+        "expected_verdict": "no_conflict",
+        "clause_a": {"sheet": "A-102", "label": "1.2"},
+        "clause_b": {"sheet": "E-101", "label": "1.2"},
+        "rationale": "Door D-15 swings outward into the corridor, away from Room 121, so it never enters Panel EP-6's required clearance zone."
+      }
+    ]
+  }
+}

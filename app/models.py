@@ -80,6 +80,16 @@ class FlagSeverity(enum.Enum):
     HIGH = "high"
 
 
+class CheckType(enum.Enum):
+    """Which candidate pool a Flag/LLMCall came from - jurisdiction code clauses
+    or other project clauses. Needed because both checks write Flag/LLMCall
+    rows scoped to the same submission_id, and each check's idempotent
+    clear-before-recheck must only clear its own rows, not the other check's."""
+
+    JURISDICTION = "jurisdiction"
+    CROSS_DISCIPLINE = "cross_discipline"
+
+
 class Jurisdiction(Base):
     """A jurisdiction whose building code we hold reference documentation for.
 
@@ -258,6 +268,36 @@ class DocumentClause(Base):
     clause: Mapped["Clause"] = relationship(back_populates="document_clauses")
 
 
+class LLMCall(Base):
+    """Audit record of one reasoning-engine invocation - what was actually sent
+    and received, regardless of whether it produced a flag. Exists because
+    "what did the model see" is exactly what an E&O/legal reviewer asks (per
+    CLAUDE.md), and a flag's explanation text alone doesn't answer that. Logged
+    for every clause actually reasoned over, including ones that produced zero
+    flags - "why didn't this get flagged" is as much an audit question as
+    "why did this get flagged".
+    """
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    submission_id: Mapped[str] = mapped_column(ForeignKey("submissions.id"))
+    clause_id: Mapped[str] = mapped_column(ForeignKey("clauses.id"))
+    check_type: Mapped[CheckType] = mapped_column(SAEnum(CheckType, native_enum=False))
+    engine: Mapped[str]  # "mock" | "groq" | "real" - which module handled this
+    model: Mapped[str]  # e.g. "mock-keyword-heuristic", "llama-3.3-70b-versatile"
+    prompt: Mapped[str]
+    raw_response: Mapped[str]
+    input_tokens: Mapped[int | None] = mapped_column(nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(nullable=True)
+    latency_ms: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    submission: Mapped["Submission"] = relationship()
+    clause: Mapped["Clause"] = relationship()
+    flags: Mapped[list["Flag"]] = relationship(back_populates="llm_call")
+
+
 class Flag(Base):
     """A detected conflict/compliance issue about one project Clause, raised
     against a specific Submission (re-checking a later revision can produce a
@@ -273,6 +313,8 @@ class Flag(Base):
     id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
     submission_id: Mapped[str] = mapped_column(ForeignKey("submissions.id"))
     clause_id: Mapped[str] = mapped_column(ForeignKey("clauses.id"))
+    llm_call_id: Mapped[str] = mapped_column(ForeignKey("llm_calls.id"))
+    check_type: Mapped[CheckType] = mapped_column(SAEnum(CheckType, native_enum=False))
     severity: Mapped[FlagSeverity] = mapped_column(SAEnum(FlagSeverity, native_enum=False))
     explanation: Mapped[str]
     model: Mapped[str]  # e.g. "mock-keyword-heuristic" or "claude-sonnet-5"
@@ -281,6 +323,7 @@ class Flag(Base):
 
     submission: Mapped["Submission"] = relationship()
     clause: Mapped["Clause"] = relationship()
+    llm_call: Mapped["LLMCall"] = relationship(back_populates="flags")
     citations: Mapped[list["FlagCitation"]] = relationship(back_populates="flag")
 
 

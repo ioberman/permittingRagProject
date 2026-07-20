@@ -1,0 +1,6 @@
+1.1 Ceiling height in Corridor C-104 shall be 7 feet 0 inches above finished floor.
+1.2 Ceiling height in Corridor C-108 shall be 7 feet 6 inches above finished floor.
+2.1 Guardrail height along the open side of Stair S-2 in dwelling unit 204 shall be 32 inches measured vertically from the nosing line.
+2.2 Guardrail height along the open side of Stair S-5 in dwelling unit 311 shall be 36 inches measured vertically from the nosing line.
+3.1 Stair S-3 shall rise 14 feet between the ground floor landing and the second floor landing without an intermediate landing.
+3.2 Stair S-6 shall rise 10 feet between the ground floor landing and the mezzanine landing without an intermediate landing.

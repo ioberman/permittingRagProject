@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import fitz
 
 from app.clause_extraction import (
@@ -8,6 +10,10 @@ from app.clause_extraction import (
 )
 from app.ingest import create_submission, get_or_create_project, ingest_document
 from app.models import Clause, Discipline, DocType, DocumentClause
+
+CHICAGO_CODE_PDF = (
+    Path(__file__).parent.parent / "seed_data" / "jurisdictions" / "chicago_il_building_code.pdf"
+)
 
 
 def make_test_pdf(text: str) -> bytes:
@@ -59,6 +65,49 @@ def test_split_into_clauses_hard_cuts_a_single_giant_paragraph():
     assert all(len(body) <= MAX_CLAUSE_LENGTH for _, body in clauses)
     # nothing was silently dropped
     assert sum(len(body) for _, body in clauses) >= len(giant_paragraph)
+
+
+def test_split_into_clauses_handles_letter_embedded_section_numbers():
+    # Chicago's own numbering scheme ("14B-16-1603") embeds a letter mid-number.
+    # Regression test: this used to truncate to just "14" at the first
+    # non-digit character, so dozens of distinct sections all shared one label.
+    text = (
+        "14B-1-001   Adoption of the International Building Code by reference.\n"
+        "The IBC is adopted by reference.\n"
+        "14B-1-002 Citations.\n"
+        "Provisions of IBC may be cited as follows.\n"
+    )
+    clauses = split_into_clauses(text)
+
+    assert [label for label, _ in clauses] == ["14B-1-001", "14B-1-002"]
+
+
+def test_split_into_clauses_drops_low_content_fragments():
+    # A marker followed by a bare number (typical table-cell noise) shouldn't
+    # survive as a clause, even if it happens to match the marker regex.
+    text = "4.1 15,000\n4.2 A real note with actual words in it.\n"
+    clauses = split_into_clauses(text)
+
+    assert [label for label, _ in clauses] == ["4.2"]
+
+
+def test_extract_pages_pdf_redacts_detected_tables():
+    if not CHICAGO_CODE_PDF.exists():
+        import pytest
+        pytest.skip("seed PDF not present in this checkout")
+
+    with fitz.open(CHICAGO_CODE_PDF) as doc:
+        page = doc[29]  # known to contain a table (verified manually)
+        assert page.find_tables().tables, "test assumption: this page has a detectable table"
+
+    pages = extract_pages(CHICAGO_CODE_PDF.read_bytes(), DocType.PDF_2D, "chicago.pdf")
+    page_30_text = pages[29]
+
+    # Real prose right after the table survives, with formatting intact.
+    assert "9.   Delete Section 406.5.1." in page_30_text
+    # The table's own header row (verified present via find_tables().extract()
+    # above) is gone from the extracted text.
+    assert "TYPE OF CONSTRUCTION" not in page_30_text
 
 
 def test_extract_pages_pdf():

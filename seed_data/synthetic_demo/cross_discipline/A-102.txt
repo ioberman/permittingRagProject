@@ -1,0 +1,2 @@
+1.1 Door D-12 swings into Electrical Room 118 with a 36 inch swing radius centered 6 inches off the north wall.
+1.2 Door D-15 swings outward into the corridor, away from Electrical Room 121.

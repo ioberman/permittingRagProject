@@ -1,14 +1,44 @@
 # Document/Clause Storage — Entity Relationship Diagram
 
 Reflects [app/models.py](../app/models.py). Source of truth is the code —
-regenerate this by hand if the models change.
+regenerate this by hand if the models change. See [WORKFLOW.md](WORKFLOW.md)
+for the *process* this schema supports (ingest → retrieve → reason → trace →
+continuous re-check), not just the entities.
 
 ```mermaid
 erDiagram
+    JURISDICTION {
+        string id PK
+        string name UK
+        datetime created_at
+    }
+
+    JURISDICTION_DOCUMENT {
+        string id PK
+        string jurisdiction_id FK
+        string title
+        string doc_type "bim | pdf_2d | spec"
+        string file_uri
+        string file_hash
+        json metadata "nullable"
+        datetime ingested_at
+    }
+
+    JURISDICTION_CLAUSE {
+        string id PK "jurisdiction_clause_id cited by the LLM"
+        string jurisdiction_document_id FK
+        string clause_label
+        string text
+        string content_hash UK "unique per jurisdiction_document"
+        string extraction_method "pdf_text | spec_text | ifc_property | manual"
+        json location
+        datetime created_at
+    }
+
     PROJECT {
         string id PK
         string name
-        string jurisdiction
+        string jurisdiction_id FK
         datetime created_at
     }
 
@@ -59,6 +89,45 @@ erDiagram
         string clause_id PK,FK
     }
 
+    LLM_CALL {
+        string id PK
+        string submission_id FK
+        string clause_id FK
+        string check_type "jurisdiction | cross_discipline"
+        string engine "mock | groq | real"
+        string model
+        string prompt
+        string raw_response
+        int input_tokens "nullable"
+        int output_tokens "nullable"
+        int latency_ms
+        datetime created_at
+    }
+
+    FLAG {
+        string id PK
+        string submission_id FK
+        string clause_id FK
+        string llm_call_id FK
+        string check_type "jurisdiction | cross_discipline"
+        string severity "low | medium | high"
+        string explanation
+        string model
+        bool is_simulated
+        datetime created_at
+    }
+
+    FLAG_CITATION {
+        string id PK
+        string flag_id FK
+        string clause_id FK "nullable - project-clause citation"
+        string jurisdiction_clause_id FK "nullable - jurisdiction-clause citation"
+    }
+
+    JURISDICTION ||--o{ JURISDICTION_DOCUMENT : "has reference docs"
+    JURISDICTION_DOCUMENT ||--o{ JURISDICTION_CLAUSE : "owns"
+    JURISDICTION ||--o{ PROJECT : "governs"
+
     PROJECT ||--o{ SUBMISSION : "has revisions"
     PROJECT ||--o{ DOCUMENT_SERIES : "has sheets/specs"
     SUBMISSION ||--o{ DOCUMENT : "contains versions"
@@ -67,6 +136,15 @@ erDiagram
     DOCUMENT ||--o{ DOCUMENT_CLAUSE : "includes"
     CLAUSE ||--o{ DOCUMENT_CLAUSE : "appears in"
     DOCUMENT ||--o| CLAUSE : "first_seen_document_id"
+
+    SUBMISSION ||--o{ LLM_CALL : "audited by"
+    CLAUSE ||--o{ LLM_CALL : "reasoned over in"
+    LLM_CALL ||--o{ FLAG : "produced"
+    SUBMISSION ||--o{ FLAG : "raised against"
+    CLAUSE ||--o{ FLAG : "about"
+    FLAG ||--o{ FLAG_CITATION : "supported by"
+    CLAUSE ||--o{ FLAG_CITATION : "cited as (project clause)"
+    JURISDICTION_CLAUSE ||--o{ FLAG_CITATION : "cited as (code clause)"
 ```
 
 ## Reading this diagram
@@ -87,9 +165,33 @@ erDiagram
 - **`first_seen_document_id`** on `CLAUSE` is provenance only — which
   document version *introduced* this exact content — not the set of
   documents it currently appears in (that's `DOCUMENT_CLAUSE`'s job).
-
-## Not yet built
-
-`flags` (conflict-detection output) and `flag_citations` will reference
-`CLAUSE.id` directly once conflict detection is persisted — not shown here
-since it doesn't exist in the code yet.
+- **`JURISDICTION → JURISDICTION_DOCUMENT → JURISDICTION_CLAUSE`** is a
+  separate, lighter-weight parallel chain for jurisdiction code reference
+  material — no revision-tracking or cross-document dedup (yet), each
+  jurisdiction document is ingested once, standalone. A `PROJECT` belongs to
+  exactly one `JURISDICTION`.
+- **`LLM_CALL`** is the audit record of one reasoning-engine invocation
+  (prompt/raw response/tokens/latency), logged for every clause actually
+  reasoned over — including ones that produced zero flags, since "why didn't
+  this get flagged" is as much an audit question as "why did this get
+  flagged." A `FLAG` always traces back to exactly one `LLM_CALL` via
+  `llm_call_id`, so "what did the model see" is always answerable.
+- **`check_type`** on both `LLM_CALL` and `FLAG` distinguishes the two check
+  families (jurisdiction-compliance vs. cross-discipline coordination). Both
+  families write rows scoped to `submission_id`, filtered by `check_type` so
+  running one check can never touch the other's results.
+- **Checks are incremental by default** (`app/check_persistence.py`): since
+  `CLAUSE` rows are immutable and content-hash deduped, a clause only ever
+  needs reasoning once per `check_type`, ever — a re-check skips any clause
+  that already has an `LLM_CALL` of that type from *any* of the project's
+  submissions, and only reasons about genuinely new/changed clauses. This is
+  why "current flags for a project" is a computed view (every `FLAG` whose
+  `clause_id` is still part of the project's current clause set), not a
+  `submission_id` filter — a flag from an older submission stays "current"
+  until the clause it's about is itself superseded. An explicit `force=True`
+  clears a check_type's Flag/LLMCall rows project-wide and redoes everything.
+- **`FLAG_CITATION`** has exactly one of `clause_id` / `jurisdiction_clause_id`
+  set per row, matching `check_type`: jurisdiction checks cite
+  `JURISDICTION_CLAUSE` rows, cross-discipline checks cite another project
+  `CLAUSE` (both built — see `app/conflict_detection.py` and
+  `app/cross_discipline_detection.py`).

@@ -1,0 +1,15 @@
+{
+  "source": "University of Colorado Colorado Springs (UCCS) Planning, Design & Construction - public bid set, Cybersecurity and Space Ecosystem Expansion project, issued 2021-05-04.",
+  "source_url": "https://pdc.uccs.edu/sites/g/files/kjihxj1346/files/inline-files/2021-0525_UCCS%20BID%20SET%20-%20Drawings.pdf",
+  "note": "The full bid set is 133 pages / ~43MB - too large to commit here. These 5 files are individual sheets extracted from it, picked to cover multiple disciplines and both 'real prose' and 'legend/symbol table' page types, since those stress the extractor very differently. Re-download the full set from source_url if you need more pages (e.g. for the electrical discipline - every E-series sheet in this set embeds several large scanned raster images per page, 30MB+ each once isolated, so none were included here).",
+  "jurisdiction": "Colorado Springs, CO",
+  "jurisdiction_note": "No code/amendment documentation loaded for this jurisdiction - these files are for extraction-pipeline stress-testing only, not jurisdiction-flagging accuracy testing (use seed_data/synthetic_demo for that, which is grounded in real Chicago/San Diego amendment text we do have loaded).",
+  "project_name": "Real: UCCS Bid Set (pipeline test)",
+  "documents": [
+    {"file": "uccs_g002_fire_life_safety_notes.pdf", "sheet_number": "G002", "title": "Fire & Life Safety General Notes", "discipline": "ARCHITECTURAL", "page_type": "prose notes"},
+    {"file": "uccs_a002_arch_abbreviations_legend.pdf", "sheet_number": "A002", "title": "Architectural Abbreviations Legend", "discipline": "ARCHITECTURAL", "page_type": "legend/symbol table"},
+    {"file": "uccs_fp_scope_of_work.pdf", "sheet_number": "FP-notes", "title": "Fire Protection Scope of Work", "discipline": "FIRE_PROTECTION", "page_type": "prose notes"},
+    {"file": "uccs_p_plumbing_general_notes.pdf", "sheet_number": "P-notes", "title": "Plumbing General Notes", "discipline": "PLUMBING", "page_type": "prose notes"},
+    {"file": "uccs_m_mechanical_legend.pdf", "sheet_number": "M-legend", "title": "Mechanical Legend", "discipline": "MECHANICAL", "page_type": "legend/symbol table"}
+  ]
+}

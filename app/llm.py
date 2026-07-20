@@ -6,9 +6,12 @@ citations can only reference jurisdiction_clause_ids it was actually shown -
 it can't invent a citation to something not in its context window.
 """
 
+import json
+import time
+
 import anthropic
 
-from app.conflict_result import ConflictResult
+from app.conflict_result import CallRecord, ConflictResult
 from app.models import Clause, JurisdictionClause
 
 MODEL_NAME = "claude-sonnet-5"
@@ -47,6 +50,43 @@ REPORT_CONFLICTS_TOOL = {
     "strict": True,
 }
 
+REPORT_CROSS_DISCIPLINE_CONFLICTS_TOOL = {
+    "name": "report_cross_discipline_conflicts",
+    "description": (
+        "Report coordination conflicts between this clause and candidate clauses from "
+        "OTHER disciplines within the same submission. Only report a conflict when the "
+        "two clauses describe the same physical space, element, or system in a way that "
+        "is physically or functionally incompatible (e.g. a required clearance that "
+        "doesn't fit, a duct routed through a beam's clear height) - not for merely "
+        "related topics or clauses that happen to mention the same room or component "
+        "without any actual incompatibility."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "conflicts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                        "explanation": {"type": "string"},
+                        "cited_clause_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["severity", "explanation", "cited_clause_ids"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["conflicts"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 client = anthropic.Anthropic()
 
 
@@ -69,20 +109,34 @@ def _build_prompt(clause: Clause, candidates: list[JurisdictionClause]) -> str:
     )
 
 
-def detect_conflicts(clause: Clause, candidates: list[JurisdictionClause]) -> list[ConflictResult]:
+def detect_conflicts(
+    clause: Clause, candidates: list[JurisdictionClause]
+) -> tuple[list[ConflictResult], CallRecord | None]:
     if not candidates:
-        return []
+        return [], None
 
+    prompt = _build_prompt(clause, candidates)
+    start = time.monotonic()
     response = client.messages.create(
         model=MODEL_NAME,
         max_tokens=1024,
         tools=[REPORT_CONFLICTS_TOOL],
         tool_choice={"type": "tool", "name": "report_conflicts"},
-        messages=[{"role": "user", "content": _build_prompt(clause, candidates)}],
+        messages=[{"role": "user", "content": prompt}],
     )
+    latency_ms = int((time.monotonic() - start) * 1000)
 
     tool_use = next(b for b in response.content if b.type == "tool_use")
     shown_ids = {c.id for c in candidates}
+
+    record = CallRecord(
+        prompt=prompt,
+        raw_response=json.dumps(tool_use.input),
+        model=MODEL_NAME,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+        latency_ms=latency_ms,
+    )
 
     results = []
     for conflict in tool_use.input["conflicts"]:
@@ -95,9 +149,72 @@ def detect_conflicts(clause: Clause, candidates: list[JurisdictionClause]) -> li
             ConflictResult(
                 severity=conflict["severity"],
                 explanation=conflict["explanation"],
-                cited_jurisdiction_clause_ids=cited,
+                cited_candidate_ids=cited,
                 model=MODEL_NAME,
                 is_simulated=False,
             )
         )
-    return results
+    return results, record
+
+
+def _build_cross_discipline_prompt(clause: Clause, candidates: list[Clause]) -> str:
+    candidate_text = "\n\n".join(
+        f"[id: {c.id}] {c.series.discipline.value} {c.clause_label}: {c.text}" for c in candidates
+    )
+    return (
+        f"Clause '{clause.clause_label}' ({clause.series.discipline.value}):\n{clause.text}\n\n"
+        f"Candidate clauses from other disciplines in the same submission (only these may "
+        f"be cited):\n{candidate_text}\n\n"
+        "Does this clause create a coordination conflict with any of the candidates above - "
+        "i.e. do they describe the same physical space, element, or system in a way that is "
+        "physically or functionally incompatible? Call report_cross_discipline_conflicts "
+        "with your findings, or an empty conflicts list if there's no real conflict."
+    )
+
+
+def detect_cross_discipline_conflicts(
+    clause: Clause, candidates: list[Clause]
+) -> tuple[list[ConflictResult], CallRecord | None]:
+    if not candidates:
+        return [], None
+
+    prompt = _build_cross_discipline_prompt(clause, candidates)
+    start = time.monotonic()
+    response = client.messages.create(
+        model=MODEL_NAME,
+        max_tokens=1024,
+        tools=[REPORT_CROSS_DISCIPLINE_CONFLICTS_TOOL],
+        tool_choice={"type": "tool", "name": "report_cross_discipline_conflicts"},
+        messages=[{"role": "user", "content": prompt}],
+    )
+    latency_ms = int((time.monotonic() - start) * 1000)
+
+    tool_use = next(b for b in response.content if b.type == "tool_use")
+    shown_ids = {c.id for c in candidates}
+
+    record = CallRecord(
+        prompt=prompt,
+        raw_response=json.dumps(tool_use.input),
+        model=MODEL_NAME,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
+        latency_ms=latency_ms,
+    )
+
+    results = []
+    for conflict in tool_use.input["conflicts"]:
+        # Defense in depth: only trust citations to clauses actually shown,
+        # even though the forced schema already constrains this to strings.
+        cited = [cid for cid in conflict["cited_clause_ids"] if cid in shown_ids]
+        if not cited:
+            continue
+        results.append(
+            ConflictResult(
+                severity=conflict["severity"],
+                explanation=conflict["explanation"],
+                cited_candidate_ids=cited,
+                model=MODEL_NAME,
+                is_simulated=False,
+            )
+        )
+    return results, record

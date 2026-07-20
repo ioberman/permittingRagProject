@@ -73,3 +73,44 @@ def find_candidate_jurisdiction_clauses(
         clause.id: [jurisdiction_clauses[i] for i in indices]
         for clause, indices in zip(clauses, ranked_indices)
     }
+
+
+def find_candidate_cross_discipline_clauses_scored(
+    clauses: list[Clause], top_n: int = DEFAULT_TOP_N
+) -> dict[str, list[tuple[Clause, float]]]:
+    """Same matching as find_candidate_cross_discipline_clauses, but also
+    returns the cosine similarity score for each candidate - useful for
+    displaying retrieval quality on its own (e.g. a no-LLM preview view),
+    where the LLM-facing function's returned Clause objects alone don't carry
+    "why did retrieval think these were related" for a human to check."""
+    if len(clauses) < 2:
+        return {}
+
+    model = _get_model()
+    texts = [c.text for c in clauses]
+    disciplines = [c.series.discipline for c in clauses]
+    embeddings = model.encode(texts, normalize_embeddings=True)
+    similarities = embeddings @ embeddings.T
+
+    result: dict[str, list[tuple[Clause, float]]] = {}
+    for i, clause in enumerate(clauses):
+        row = similarities[i]
+        ranked = sorted(range(len(clauses)), key=lambda j: row[j], reverse=True)
+        result[clause.id] = [
+            (clauses[j], float(row[j])) for j in ranked
+            if j != i and disciplines[j] != disciplines[i] and row[j] > SIMILARITY_THRESHOLD
+        ][:top_n]
+    return result
+
+
+def find_candidate_cross_discipline_clauses(
+    clauses: list[Clause], top_n: int = DEFAULT_TOP_N
+) -> dict[str, list[Clause]]:
+    """Maps each Clause.id to its top-N most similar Clause rows from OTHER
+    disciplines within the same list (typically every clause in one
+    submission). Same-discipline matches are excluded outright - a
+    structural clause matching another structural clause isn't a
+    coordination conflict, it's just the same team's own document, a
+    different problem entirely."""
+    scored = find_candidate_cross_discipline_clauses_scored(clauses, top_n)
+    return {clause_id: [c for c, _ in pairs] for clause_id, pairs in scored.items()}

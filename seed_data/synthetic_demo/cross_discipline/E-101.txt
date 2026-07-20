@@ -1,0 +1,2 @@
+1.1 Panel EP-3 in Electrical Room 118 requires a 36 inch clear working space per NEC in front of the panel, mounted on the north wall.
+1.2 Panel EP-6 in Electrical Room 121 requires a 36 inch clear working space per NEC in front of the panel, mounted on the south wall.

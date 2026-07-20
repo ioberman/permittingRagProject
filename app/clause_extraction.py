@@ -17,6 +17,17 @@ capped at MAX_CLAUSE_LENGTH: the overflow is split on paragraph breaks into
 labeled sub-clauses ("4.2 (cont. 2)") that still trace back to the same
 source marker. A paragraph with no blank lines at all falls back to a hard
 character cut, so no single clause is ever unbounded.
+
+Two noise-reduction passes, found necessary against real jurisdiction PDFs
+(Chicago's building code produced garbage clauses like label="15" text="15,000"
+from table cells before these were added):
+  - Detected tables (PyMuPDF's find_tables()) are redacted out of the page
+    before text extraction, verified not to drop surrounding prose (redaction
+    preserves PyMuPDF's own paragraph-flow formatting for what's left, unlike
+    a naive word-position filter which would mangle line wrapping).
+  - A minimum-content filter drops any resulting clause with fewer than
+    MIN_WORDS real words - catches stray fragments (headers, page numbers,
+    non-tabular noise) that table redaction alone doesn't touch.
 """
 
 import hashlib
@@ -38,12 +49,29 @@ from app.models import (
 from app.storage import LocalFileStorage
 
 CLAUSE_MARKER = re.compile(
-    r"^((?:NOTE|SECTION|DETAIL)?\s*\d+(?:\.\d+)*\.?)\s*[:\-]?\s*(.*)", re.IGNORECASE
+    r"^((?:NOTE|SECTION|DETAIL)?\s*\d+[A-Z]?(?:[-.]\d+)*\.?)\s*[:\-]?\s*(.*)", re.IGNORECASE
 )
+# [A-Z]?(?:[-.]\d+)* handles chapter-letter-hyphenated section numbers like
+# "14B-16-1603" (a real Chicago Building Code convention) alongside plain
+# decimal ones like "4.2.1" - without it, "14B-16-1603" truncated to just
+# "14" at the first non-digit character, and ~19% of Chicago's clauses ended
+# up sharing that one useless label (boundaries were still correct - only
+# the label was wrong, verified against real extracted text before this fix).
 
 MAX_CLAUSE_LENGTH = 1500
+MIN_WORDS = 2  # deliberately low - table redaction handles the worst noise;
+               # this only needs to catch what slips through (bare numbers,
+               # single-letter table cells), not clip legitimately terse clauses
+WORD_RE = re.compile(r"[A-Za-z]{2,}")
 
 storage = LocalFileStorage()
+
+
+def _looks_like_real_content(text: str) -> bool:
+    """Rejects fragments that don't look like actual prose - table cell noise
+    ("15,000"), bare column headers, stray short fragments. A real clause body
+    (even a short one) reads as a sentence; noise doesn't."""
+    return len(WORD_RE.findall(text)) >= MIN_WORDS
 
 
 def _split_oversized(label: str, text: str) -> list[tuple[str, str]]:
@@ -102,14 +130,23 @@ def split_into_clauses(text: str) -> list[tuple[str, str]]:
 
     if not clauses and text.strip():
         clauses = _split_oversized("full-text", text.strip())
-    return clauses
+
+    return [(label, body) for label, body in clauses if _looks_like_real_content(body)]
 
 
 def extract_pages(content: bytes, doc_type: DocType, filename: str) -> list[str]:
     """Returns one text block per page (PDF) or a single block (spec text)."""
     if doc_type == DocType.PDF_2D:
         with fitz.open(stream=content, filetype="pdf") as doc:
-            return [page.get_text() for page in doc]
+            pages = []
+            for page in doc:
+                tables = page.find_tables()
+                if tables.tables:
+                    for table in tables.tables:
+                        page.add_redact_annot(fitz.Rect(table.bbox))
+                    page.apply_redactions()
+                pages.append(page.get_text())
+            return pages
 
     if doc_type == DocType.SPEC:
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
