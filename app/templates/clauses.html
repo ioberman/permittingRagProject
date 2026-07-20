@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Clauses - {{ sheet_number }} - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<a class="crumb" href="{{ back_href }}">&larr; back</a>
+<div class="eyebrow">Clauses</div>
+<h1 class="serif">{{ sheet_number }} &mdash; {{ title }}</h1>
+<p class="meta">{{ project }} / {{ revision }} / {{ discipline }} / {{ doc_type }}</p>
+
+<div class="card-table">
+<table>
+  <tr><th>Label</th><th>Text</th><th>Page</th><th>Extraction method</th></tr>
+  {% for c in clauses %}
+  <tr>
+    <td class="label">{{ c.clause_label }}</td>
+    <td>{{ c.text }}</td>
+    <td>{{ c.location.get('page', '-') }}</td>
+    <td>{{ c.extraction_method.value }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+{% endblock %}

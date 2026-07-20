@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Projects - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Projects</div>
+<h1 class="serif">All submissions, at a glance</h1>
+<p class="lede">Every project you're tracking, its jurisdiction, and where each of the two independent checks currently stand.</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+{% if not jurisdictions %}
+<p class="warn">No jurisdictions have reference documentation loaded yet -
+  <a href="/jurisdictions">add one</a> before creating a project.</p>
+{% endif %}
+
+<form method="post" action="/projects" class="new-project">
+  <label>New project name
+    <input name="project_name" required>
+  </label>
+  <label>Jurisdiction
+    <select name="jurisdiction_id" {% if not jurisdictions %}disabled{% endif %} required>
+      {% for j in jurisdictions %}<option value="{{ j.id }}">{{ j.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Create project</button>
+</form>
+
+<div class="card-table">
+<table>
+  <tr><th>Project</th><th>Jurisdiction</th><th>Latest revision</th><th>Sheets</th><th>vs. code</th><th>cross-discipline</th></tr>
+  {% for row in rows %}
+  <tr>
+    <td><a href="/projects/{{ row.id }}">{{ row.name }}</a></td>
+    <td>{{ row.jurisdiction }}</td>
+    <td>{{ row.revision }}</td>
+    <td>{{ row.sheet_count }}</td>
+    <td><span class="badge {{ row.jurisdiction_status_class }}">{{ row.jurisdiction_status }}</span></td>
+    <td><span class="badge {{ row.cross_status_class }}">{{ row.cross_status }}</span></td>
+  </tr>
+  {% endfor %}
+  {% if not rows %}
+  <tr><td colspan="6" class="meta">No projects yet - create one above.</td></tr>
+  {% endif %}
+</table>
+</div>
+
+{% endblock %}

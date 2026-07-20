@@ -85,8 +85,8 @@ erDiagram
     }
 
     DOCUMENT_CLAUSE {
-        string document_id PK,FK
-        string clause_id PK,FK
+        string document_id PK
+        string clause_id PK
     }
 
     LLM_CALL {

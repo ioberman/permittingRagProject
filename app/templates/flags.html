@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Flags - {{ project }} - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<a class="crumb" href="/projects/{{ project_id }}">&larr; back to {{ project }}</a>
+<div class="eyebrow">Flags</div>
+<h1 class="serif">Current flags &mdash; {{ project }}</h1>
+<p class="info">Every clause is only ever reasoned about once per check type - a flag
+  found under an earlier revision stays current here until the clause it's about is
+  itself superseded by a later revision, not until the whole project is re-checked.</p>
+<p class="meta">{{ flags|length }} flag(s) found &middot; <a href="/projects/{{ project_id }}/audit-report" class="action-link">view audit report &rarr;</a></p>
+
+<div class="card-table">
+<table>
+  <tr><th>Type</th><th>Severity</th><th>Clause</th><th>Found in</th><th>Explanation</th><th>Cited</th><th>Model</th><th></th></tr>
+  {% for f in flags %}
+  <tr>
+    <td>{{ "cross-discipline" if f.check_type.value == "cross_discipline" else "vs. code" }}</td>
+    <td class="sev-{{ f.severity.value }}">{{ f.severity.value }}</td>
+    <td class="label">{{ f.clause.clause_label }}</td>
+    <td>{{ f.submission.revision_label }}</td>
+    <td>{{ f.explanation }}</td>
+    <td>
+      {% for c in f.citations %}
+        {% if c.jurisdiction_clause %}<div>{{ c.jurisdiction_clause.clause_label }}</div>{% endif %}
+        {% if c.clause %}<div>{{ c.clause.series.discipline.value }} {{ c.clause.clause_label }}</div>{% endif %}
+      {% endfor %}
+    </td>
+    <td>
+      {{ f.model }}
+      {% if f.is_simulated %}<span class="placeholder-badge" title="Keyword heuristic, not real model reasoning">simulated</span>{% endif %}
+    </td>
+    <td><a href="/flags/{{ f.id }}/reasoning">view reasoning</a></td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+{% endblock %}

@@ -1,0 +1,323 @@
+/* Plan Review Copilot - shared stylesheet.
+   Blended direction: serif display headings + sans UI text, hairline card
+   tables, restrained sage-green accent, higher-contrast ink than a pure
+   pastel palette. Light is the default regardless of OS preference - the
+   header toggle (see base.html) is the only way to switch to dark, and its
+   choice is remembered via localStorage. */
+
+:root {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --ink: #14130d;
+  --ink-soft: #423f34;
+  --ink-faint: #6b6852;
+  --rule: #e2ded2;
+  --rule-strong: #c9c3b2;
+  --accent: #3f5230;
+  --accent-soft: #eaefe3;
+  --danger: #8a3225;
+  --danger-soft: #f6e9e6;
+  --warn: #7a5a1e;
+  --warn-soft: #f3ecd9;
+  --shadow: 0 1px 3px rgba(23, 22, 15, 0.06);
+  --focus: rgba(63, 82, 48, 0.3);
+}
+
+:root[data-theme="dark"] {
+  --bg: #15140f;
+  --surface: #1d1c16;
+  --ink: #f6f4ec;
+  --ink-soft: #cdc9b8;
+  --ink-faint: #9b9680;
+  --rule: #33312a;
+  --rule-strong: #464333;
+  --accent: #a9c28d;
+  --accent-soft: #23291c;
+  --danger: #dd9282;
+  --danger-soft: #2c1b17;
+  --warn: #e0bd75;
+  --warn-soft: #2c2515;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --focus: rgba(169, 194, 141, 0.35);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg); color: var(--ink); margin: 0; line-height: 1.55;
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.serif { font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif; }
+.mono, .label { font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace; }
+.label { white-space: nowrap; }
+
+/* Every link gets a deliberate color - nothing falls through to browser blue. */
+a { color: var(--ink); }
+a:hover { color: var(--accent); }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 1.75rem 4.5rem; }
+
+/* ---------- Header / nav ---------- */
+
+header.site {
+  border-bottom: 1px solid var(--rule-strong); padding: 1.5rem 0; margin-bottom: 2.5rem; background: var(--surface);
+}
+header.site .wrap { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-top: 0; padding-bottom: 0; }
+.wordmark { font-size: 1.1rem; text-decoration: none; color: var(--ink); }
+.wordmark:hover { color: var(--ink); }
+.wordmark .thin { color: var(--ink-faint); font-style: italic; }
+.header-right { display: flex; align-items: baseline; gap: 2rem; }
+.site-nav a, nav a { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-soft); text-decoration: none; margin-left: 2rem; }
+.site-nav a:first-child, nav a:first-child { margin-left: 0; }
+.site-nav a:hover, nav a:hover { color: var(--accent); }
+
+.nav-dropdown { display: inline-block; position: relative; margin-left: 2rem; }
+.nav-dropdown-toggle {
+  background: none; border: none; padding: 0; margin: 0; cursor: pointer; font-family: inherit;
+  font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-soft);
+  display: inline-flex; align-items: center; gap: 0.3rem;
+}
+.nav-dropdown-toggle:hover { color: var(--accent); background: none; }
+.chevron { font-size: 0.7rem; }
+.nav-dropdown-menu {
+  position: absolute; top: 1.6rem; right: 0; background: var(--surface); border: 1px solid var(--rule-strong);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14); padding: 0.4rem; min-width: 150px; z-index: 20;
+}
+.nav-dropdown-menu a {
+  display: block; padding: 0.5rem 0.7rem; font-size: 0.82rem; text-transform: none; letter-spacing: normal;
+  color: var(--ink); border-radius: 5px; margin-left: 0;
+}
+.nav-dropdown-menu a:hover { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
+.theme-toggle {
+  font-family: inherit; font-size: 0.76rem; padding: 0.35rem 0.7rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;
+  border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink-soft); border-radius: 999px;
+}
+.theme-toggle:hover { color: var(--accent); border-color: var(--accent); background: var(--surface); }
+
+/* ---------- Typography ---------- */
+
+h1 { font-size: 1.85rem; font-weight: 400; letter-spacing: -0.01em; margin: 0 0 0.4rem; text-wrap: balance; }
+.eyebrow { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-faint); margin-bottom: 0.5rem; font-weight: 600; }
+.lede { color: var(--ink-soft); font-size: 1.02rem; max-width: 60ch; margin: 0 0 1.5rem; }
+.page-header { margin-bottom: 1.75rem; }
+.crumb { font-size: 0.84rem; color: var(--ink-soft); text-decoration: none; display: inline-block; margin-bottom: 0.6rem; }
+.crumb:hover { color: var(--accent); }
+.meta { color: var(--ink-soft); font-size: 0.87rem; margin-bottom: 1rem; }
+.meta div { margin-bottom: 0.25rem; }
+
+h2 {
+  font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint);
+  font-weight: 700; margin: 2.75rem 0 1rem;
+}
+
+.action-link { color: var(--ink); font-weight: 600; font-size: 0.88rem; text-decoration: none; }
+.action-link:hover { color: var(--accent); text-decoration: underline; }
+
+/* ---------- Callouts ---------- */
+
+.error, .info, .warn {
+  padding: 0.7rem 1rem; border-radius: 6px; font-size: 0.88rem; margin-bottom: 1.5rem;
+}
+.error { color: var(--danger); background: var(--danger-soft); }
+.info { color: var(--accent); background: var(--accent-soft); }
+.warn { color: var(--warn); background: var(--warn-soft); }
+
+/* ---------- Badges / status ---------- */
+
+.badge {
+  display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; font-weight: 600;
+}
+.status-ok { color: var(--accent); }
+.status-flagged { color: var(--danger); }
+.status-none { color: var(--ink-faint); font-weight: 400; }
+
+.placeholder-badge {
+  display: inline-block; font-size: 0.68rem; font-weight: 600; background: var(--warn-soft);
+  color: var(--warn); padding: 0.1rem 0.5rem; border-radius: 999px; margin-left: 0.4rem; cursor: help;
+}
+.sev-high { color: var(--danger); font-weight: 700; }
+.sev-medium { color: var(--warn); font-weight: 700; }
+.sev-low { color: var(--ink-soft); font-weight: 600; }
+
+.diff-tag { font-size: 0.68rem; text-transform: uppercase; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px; margin-right: 0.4rem; letter-spacing: 0.03em; }
+.diff-tag-new { background: var(--accent-soft); color: var(--accent); }
+.diff-tag-removed { background: var(--danger-soft); color: var(--danger); }
+
+.discipline-pill {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; color: var(--ink-soft);
+  background: var(--accent-soft); padding: 0.15rem 0.55rem; border-radius: 999px; white-space: nowrap;
+}
+
+/* ---------- Tables (live inside .card-table) ---------- */
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
+  font-weight: 700; padding: 1rem 0 0.7rem; border-bottom: 1px solid var(--rule-strong);
+}
+td { padding: 0.9rem 0; border-bottom: 1px solid var(--rule); font-size: 0.92rem; vertical-align: top; color: var(--ink); }
+tr:last-child td { border-bottom: none; }
+td a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule-strong); font-weight: 500; }
+td a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.card-table { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 0 1.25rem; box-shadow: var(--shadow); margin-bottom: 2rem; overflow-x: auto; }
+.card-table th, .card-table td { padding-left: 0; padding-right: 0; }
+.card-table tr:first-child th { padding-top: 1.15rem; }
+.score { font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.added { background: var(--accent-soft); }
+.removed { background: var(--danger-soft); text-decoration: line-through; color: var(--ink-soft); }
+
+/* ---------- Forms (generic) ---------- */
+
+fieldset { border: 1px solid var(--rule); border-radius: 8px; margin-bottom: 1.5rem; padding: 0.5rem 1.4rem 1.4rem; background: var(--surface); box-shadow: var(--shadow); }
+label { display: block; margin-top: 1rem; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: var(--ink-soft); }
+input, select {
+  padding: 0.55rem 0.6rem; margin-top: 0.35rem; box-sizing: border-box; width: 100%;
+  border: 1px solid var(--rule-strong); border-radius: 5px; background: var(--bg); color: var(--ink);
+  font-size: 0.9rem; font-family: inherit;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+input[type=checkbox] { width: auto; }
+button, .btn {
+  padding: 0.55rem 1.2rem; cursor: pointer; border-radius: 6px; border: 1px solid var(--ink);
+  background: var(--ink); color: var(--bg); font-weight: 600; font-size: 0.85rem; font-family: inherit;
+  display: inline-block; text-decoration: none;
+}
+button:hover, .btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:active, .btn:active { transform: translateY(1px); }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--rule-strong); }
+.btn.ghost:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.btn.sm { padding: 0.35rem 0.8rem; font-size: 0.78rem; }
+.autofilled { background: var(--accent-soft) !important; }
+
+pre {
+  background: var(--bg); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 1rem 1.1rem; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem;
+}
+
+.new-project {
+  display: flex; gap: 1.25rem; align-items: flex-end; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 1.1rem 1.4rem; margin-bottom: 2rem;
+}
+.new-project label { flex: 1; margin-top: 0; }
+.new-project button { margin: 0; }
+
+.revise-form { display: inline; }
+.revise-form button { margin: 0; }
+
+/* ---------- Check panel (project detail primary actions) ---------- */
+
+.meta-line { color: var(--ink-soft); font-size: 0.88rem; margin-bottom: 1.75rem; display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: center; }
+.meta-line .badge { font-size: 0.86rem; }
+
+.check-panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 2rem; overflow: hidden; }
+.check-row { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.4rem; gap: 1rem; flex-wrap: wrap; }
+.check-row + .check-row { border-top: 1px solid var(--rule); }
+.check-info .name { font-weight: 600; font-size: 0.92rem; margin-bottom: 0.2rem; }
+.check-info .desc { font-size: 0.8rem; color: var(--ink-soft); }
+.check-controls { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+.field-label {
+  display: flex; align-items: center; gap: 0.5rem; font-size: 0.76rem; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--ink-faint); font-weight: 600; margin: 0;
+}
+.engine-select {
+  padding: 0.45rem 0.6rem; border: 1px solid var(--rule-strong); border-radius: 5px; background: var(--bg);
+  color: var(--ink); font-size: 0.82rem; font-family: inherit; width: auto; margin: 0; text-transform: none; letter-spacing: normal;
+}
+.inline-check {
+  display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--ink-soft);
+  font-weight: 400; text-transform: none; letter-spacing: normal; margin: 0; white-space: nowrap;
+}
+.inline-check input { margin: 0; }
+.check-row.footer-row { background: var(--accent-soft); }
+
+/* ---------- Sheets toolbar / collapsible add-sheet form ---------- */
+
+.sheets-toolbar { display: flex; justify-content: space-between; align-items: baseline; margin: 2.75rem 0 1rem; }
+.sheets-toolbar h2 { margin: 0; }
+
+/* ---------- Grouped sections (diff view - one card per sheet) ---------- */
+
+.discipline-section { margin-bottom: 1.25rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); overflow: hidden; }
+.discipline-title {
+  font-weight: 600; font-size: 0.85rem; color: var(--ink);
+  padding: 0.85rem 1.1rem; border-bottom: 1px solid var(--rule); background: var(--bg);
+}
+.discipline-section td, .discipline-section th { padding-left: 1.1rem; padding-right: 1.1rem; }
+.badge-count {
+  display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 999px;
+  padding: 0.05rem 0.55rem; font-size: 0.7rem; margin-left: 0.4rem; font-weight: 700;
+}
+
+.collapsible-form { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 2rem; }
+.collapsible-form summary {
+  list-style: none; cursor: pointer; padding: 0.95rem 1.4rem; font-weight: 600; font-size: 0.86rem;
+  display: flex; align-items: center; justify-content: space-between; color: var(--ink);
+}
+.collapsible-form summary::-webkit-details-marker { display: none; }
+.collapsible-form summary::after { content: "+"; font-size: 1.2rem; color: var(--ink-faint); font-weight: 400; }
+.collapsible-form[open] summary::after { content: "\2212"; }
+.collapsible-form[open] summary { border-bottom: 1px solid var(--rule); }
+.form-body { padding: 1.4rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem 1.4rem; }
+.form-body label { grid-column: span 1; margin-top: 1rem; }
+.form-body .full { grid-column: 1 / -1; }
+.form-body button { margin-top: 1.4rem; }
+
+/* ---------- Audit report (print-first, standalone page) ---------- */
+
+.report-header { border-bottom: 3px solid var(--ink); padding-bottom: 1rem; margin-bottom: 1.5rem; }
+.report-header h1 { font-size: 1.5rem; margin: 0 0 0.2rem; }
+.report-header .subtitle { color: var(--ink-soft); font-size: 0.9rem; }
+.summary { display: flex; gap: 1.25rem; margin-bottom: 2rem; flex-wrap: wrap; }
+.summary-card { border: 1px solid var(--rule); border-radius: 6px; padding: 0.7rem 1.1rem; min-width: 120px; background: var(--surface); box-shadow: var(--shadow); }
+.summary-card .n { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+.summary-card .l { font-size: 0.75rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.03em; }
+.report-footer { color: var(--ink-soft); font-size: 0.75rem; margin-top: 2rem; border-top: 1px solid var(--rule); padding-top: 0.75rem; }
+.no-print > * { margin-right: 0.75rem; }
+
+@media print {
+  .no-print { display: none; }
+  body { margin: 0; background: #fff; }
+  .wrap { max-width: none; padding: 0; }
+  a { color: inherit; text-decoration: none; }
+  .card-table, table, .summary-card { box-shadow: none; border-color: #999; }
+}
+
+/* ---------- Diagrams modal ---------- */
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(20, 19, 13, 0.55); z-index: 100;
+  align-items: center; justify-content: center; padding: 2.5rem;
+}
+/* [hidden] alone has almost no CSS specificity, so a plain class rule with
+   display:flex would otherwise always win and the modal would show
+   regardless of the hidden attribute - this explicit override fixes that. */
+.modal-overlay:not([hidden]) { display: flex; }
+.modal-overlay[hidden] { display: none; }
+:root[data-theme="dark"] .modal-overlay { background: rgba(0, 0, 0, 0.7); }
+.modal {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 100%; max-width: 960px; max-height: 100%; display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 0.75rem 0.75rem 1.4rem;
+  border-bottom: 1px solid var(--rule);
+}
+.modal-tabs { display: flex; gap: 0.4rem; }
+.modal-tab {
+  background: transparent; border: 1px solid transparent; color: var(--ink-soft); font-weight: 600; font-size: 0.85rem;
+  padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer;
+}
+.modal-tab:hover { color: var(--ink); background: var(--bg); }
+.modal-tab.active { color: var(--accent); background: var(--accent-soft); }
+.modal-close {
+  background: transparent; border: none; color: var(--ink-faint); font-size: 1.4rem; line-height: 1; cursor: pointer;
+  padding: 0.3rem 0.6rem; border-radius: 6px;
+}
+.modal-close:hover { color: var(--ink); background: var(--bg); }
+.modal-body { padding: 1.5rem 1.75rem 1.75rem; overflow: auto; }
+.diagram-pane { display: none; }
+.diagram-pane.active { display: block; }
+.mermaid-output { display: flex; justify-content: center; }
+.mermaid-output svg { max-width: 100%; height: auto; }
+

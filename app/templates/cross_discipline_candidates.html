@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Cross-discipline candidates - {{ project.name }} - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<a class="crumb" href="/projects/{{ project.id }}">&larr; back to {{ project.name }}</a>
+<div class="eyebrow">Cross-discipline preview</div>
+<h1 class="serif">Candidates &mdash; {{ project.name }} {{ revision }}</h1>
+<p class="info">Retrieval only - no LLM was called. This is the semantic-similarity
+  matching step that narrows candidates before a reasoning engine judges whether
+  a real conflict exists; it does not itself determine conflict vs. no conflict.</p>
+
+<div class="card-table">
+<table>
+  <tr><th>Clause</th><th>Candidate (other discipline)</th><th>Similarity</th></tr>
+  {% for clause, candidates in rows %}
+    {% for candidate, score in candidates %}
+    <tr>
+      <td class="label">{{ clause.series.discipline.value }} {{ clause.clause_label }}: {{ clause.text[:80] }}</td>
+      <td class="label">{{ candidate.series.discipline.value }} {{ candidate.clause_label }}: {{ candidate.text[:80] }}</td>
+      <td class="score">{{ "%.2f"|format(score) }}</td>
+    </tr>
+    {% else %}
+    <tr>
+      <td class="label">{{ clause.series.discipline.value }} {{ clause.clause_label }}</td>
+      <td colspan="2">(no candidates above similarity threshold)</td>
+    </tr>
+    {% endfor %}
+  {% endfor %}
+</table>
+</div>
+
+{% endblock %}

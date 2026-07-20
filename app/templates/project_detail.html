@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<a class="crumb" href="/">&larr; all projects</a>
+<div class="page-header">
+  <div class="eyebrow">Project</div>
+  <h1 class="serif">{{ project.name }}</h1>
+  <div class="meta-line">
+    <span>Jurisdiction: {{ project.jurisdiction.name }}</span>
+    <span>&middot;</span>
+    <span class="badge {{ jurisdiction_status_class }}">vs. code: {{ jurisdiction_status }}</span>
+    <span class="badge {{ cross_status_class }}">cross-discipline: {{ cross_status }}</span>
+  </div>
+</div>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+{% if missing_disciplines %}
+<p class="warn">No sheets yet for: {{ missing_disciplines|join(', ') }}</p>
+{% endif %}
+
+<div class="check-panel">
+  <form method="post" action="/projects/{{ project.id }}/check" class="check-row">
+    <div class="check-info">
+      <div class="name">Check vs. code</div>
+      <div class="desc">Compares each sheet against this jurisdiction's adopted amendments.</div>
+    </div>
+    <div class="check-controls">
+      <label class="field-label">Engine
+        <select name="engine" class="engine-select">
+          <option value="mock">mock (no API key)</option>
+          <option value="groq">groq (free tier)</option>
+          <option value="real">real (Claude, paid)</option>
+        </select>
+      </label>
+      <label class="inline-check" title="Re-check every current clause from scratch, instead of only the ones never checked before">
+        <input type="checkbox" name="force" value="1"> Full re-check
+      </label>
+      <button type="submit" class="btn sm">Run check</button>
+    </div>
+  </form>
+  <form method="post" action="/projects/{{ project.id }}/check-cross-discipline" class="check-row">
+    <div class="check-info">
+      <div class="name">Check cross-discipline</div>
+      <div class="desc">Coordination clashes against other disciplines in this submission.</div>
+    </div>
+    <div class="check-controls">
+      <label class="field-label">Engine
+        <select name="engine" class="engine-select">
+          <option value="preview" title="Shows the semantic-similarity matches without judging conflict vs. no conflict - no API key needed">preview (no LLM)</option>
+          <option value="groq">groq (free tier)</option>
+          <option value="real">real (Claude, paid)</option>
+        </select>
+      </label>
+      <label class="inline-check" title="Re-check every current clause from scratch, instead of only the ones never checked before">
+        <input type="checkbox" name="force" value="1"> Full re-check
+      </label>
+      <button type="submit" class="btn sm">Run check</button>
+    </div>
+  </form>
+  <div class="check-row footer-row">
+    <a href="/projects/{{ project.id }}/flags" class="action-link">View current flags &rarr;</a>
+    <form method="post" action="/projects/{{ project.id }}/new-revision">
+      <button type="submit" class="btn ghost sm">Start new revision</button>
+    </form>
+  </div>
+</div>
+
+<div class="sheets-toolbar">
+  <h2>Current sheets{% if latest_submission %} &middot; {{ latest_submission.revision_label }}{% endif %}</h2>
+</div>
+{% if sheet_rows %}
+<div class="card-table">
+<table>
+  <tr><th>Sheet</th><th>Discipline</th><th>Title</th><th>Type</th><th>File</th><th>Clauses</th><th>Submitted by</th><th>Ingested</th><th></th></tr>
+  {% for row in sheet_rows %}
+  <tr>
+    <td class="label">{{ row.sheet }}</td>
+    <td><span class="discipline-pill">{{ row.discipline }}</span></td>
+    <td>{{ row.title }}</td>
+    <td>{{ row.doc_type }}</td>
+    <td><a href="/files/{{ row.id }}">{{ row.filename }}</a></td>
+    <td>
+      {% if row.clause_count %}<a href="/documents/{{ row.id }}/clauses">{{ row.clause_count }}</a>{% else %}0{% endif %}
+    </td>
+    <td>
+      {{ row.submitted_by }}
+      {% if row.submitted_by_is_placeholder %}
+      <span class="placeholder-badge" title="Hardcoded until web auth is wired up - will show the real logged-in user">placeholder</span>
+      {% endif %}
+    </td>
+    <td>{{ row.ingested_at }}</td>
+    <td>
+      <form method="post" action="/documents/{{ row.id }}/revise" class="revise-form">
+        <button type="submit" class="btn ghost sm" title="Start a new revision pre-filled with this sheet's info">Revise</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% else %}
+<p class="meta">No sheets ingested yet - add one below.</p>
+{% endif %}
+
+<details class="collapsible-form" open>
+  <summary>Add a sheet</summary>
+  <form method="post" action="/projects/{{ project.id }}/ingest" enctype="multipart/form-data" class="form-body">
+    {% if revising %}
+    <p class="info full">Revising <strong>{{ prefill_sheet_number }}</strong> as a new revision - pick the updated file below.</p>
+    {% endif %}
+    <label>Sheet number
+      <input id="sheet_number" name="sheet_number" value="{{ prefill_sheet_number }}" required>
+    </label>
+    <label id="discipline_label">Discipline
+      <select id="discipline" name="discipline">
+        {% for d in disciplines %}<option value="{{ d }}" {% if d == prefill_discipline %}selected{% endif %}>{{ d }}</option>{% endfor %}
+      </select>
+    </label>
+    <label id="title_label" class="full">Title
+      <input id="title" name="title" value="{{ prefill_title }}" required>
+    </label>
+    <label class="full">File
+      <input type="file" name="file" required>
+    </label>
+    <div class="full"><button type="submit">Ingest</button></div>
+  </form>
+</details>
+
+<h2>Revision history</h2>
+<div class="card-table">
+<table>
+  <tr><th>Revision</th><th>Submitted</th><th></th></tr>
+  {% for s, previous_seq in submission_rows %}
+  <tr>
+    <td>{{ s.revision_label }}</td>
+    <td>{{ s.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+    <td>
+      {% if previous_seq %}
+      <a href="/projects/{{ project.id }}/diff?from={{ previous_seq }}&to={{ s.sequence_number }}">view diff vs. previous</a>
+      {% else %}
+      <span class="meta">first revision</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const PROJECT_ID = "{{ project.id }}";
+  async function autofillFromExistingSheet() {
+    const sheet = document.getElementById('sheet_number').value.trim();
+    const titleInput = document.getElementById('title');
+    const disciplineSelect = document.getElementById('discipline');
+    titleInput.classList.remove('autofilled');
+    disciplineSelect.classList.remove('autofilled');
+    if (!sheet) return;
+
+    const res = await fetch(`/series-info?project_id=${encodeURIComponent(PROJECT_ID)}&sheet_number=${encodeURIComponent(sheet)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data) return;
+
+    titleInput.value = data.title;
+    disciplineSelect.value = data.discipline;
+    titleInput.classList.add('autofilled');
+    disciplineSelect.classList.add('autofilled');
+  }
+  document.getElementById('sheet_number').addEventListener('blur', autofillFromExistingSheet);
+</script>
+{% endblock %}

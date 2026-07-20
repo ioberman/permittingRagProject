@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Diff {{ from_revision }} to {{ to_revision }} - {{ project.name }} - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<a class="crumb" href="/projects/{{ project.id }}">&larr; back to {{ project.name }}</a>
+<div class="eyebrow">Revision diff</div>
+<h1 class="serif">{{ from_revision }} &rarr; {{ to_revision }}</h1>
+<p class="meta">{{ project.name }} &middot; sheets with no change between these two revisions are omitted</p>
+
+{% if not sheets %}
+<p class="info">No clause-level changes between these two revisions.</p>
+{% endif %}
+
+{% for sheet in sheets %}
+<div class="discipline-section">
+  <div class="discipline-title">
+    {% if sheet.is_new_sheet %}<span class="diff-tag diff-tag-new">new sheet</span>{% endif %}
+    {% if sheet.is_removed_sheet %}<span class="diff-tag diff-tag-removed">removed</span>{% endif %}
+    {{ sheet.series.discipline.value }} {{ sheet.series.sheet_number }} &mdash; {{ sheet.series.title }}
+    <span class="badge-count">{{ sheet.unchanged_count }} unchanged</span>
+  </div>
+  <table>
+    <tr><th>Change</th><th>Label</th><th>Text</th></tr>
+    {% for c in sheet.added %}
+    <tr class="added">
+      <td><span class="diff-tag diff-tag-new">added</span></td>
+      <td class="label">{{ c.clause_label }}</td>
+      <td>{{ c.text }}</td>
+    </tr>
+    {% endfor %}
+    {% for c in sheet.removed %}
+    <tr class="removed">
+      <td><span class="diff-tag diff-tag-removed">removed</span></td>
+      <td class="label">{{ c.clause_label }}</td>
+      <td>{{ c.text }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endfor %}
+
+{% endblock %}

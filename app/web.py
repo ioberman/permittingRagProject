@@ -10,6 +10,12 @@ Revision and document type are derived rather than asked:
     sheets naturally groups together. Starting a new revision is a separate,
     explicit action, not a per-upload field.
   - document type: inferred from the file extension.
+
+Templates live in app/templates/ (Jinja files, not Python string constants)
+and share app/static/style.css - a normal Flask app layout, deployable as-is
+to any real Python host (Render, Railway, Fly, ...). GitHub Pages is NOT an
+option for this app specifically: it only serves static files and can't run
+the Flask process, hit the database, or call an LLM API.
 """
 
 import csv
@@ -17,7 +23,7 @@ import io
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
-from flask import Flask, g, jsonify, redirect, render_template_string, request, Response
+from flask import Flask, g, jsonify, redirect, render_template, request, Response
 
 from app.check_persistence import (
     current_documents_for_project,
@@ -86,557 +92,6 @@ def _close_session(exception=None):
         session.close()
 
 
-# ---------------------------------------------------------------------------
-# Shared page chrome - a plain string, not a Jinja include, since these
-# templates are Python string constants rather than files. Concatenated with
-# `+`, not f-strings, so Jinja's {{ }} syntax in the page bodies is never at
-# risk of colliding with Python's { } f-string escaping.
-# ---------------------------------------------------------------------------
-
-BASE_STYLE = """
-  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.4rem; margin-bottom: 0.3rem; }
-  h2 { font-size: 1.05rem; margin-top: 2rem; margin-bottom: 0.5rem; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; font-size: 0.85rem; vertical-align: top; }
-  a { color: #2557a7; }
-  .label { font-family: ui-monospace, monospace; white-space: nowrap; }
-  .meta { color: #666; font-size: 0.85rem; margin-bottom: 1rem; }
-  .error { color: #b00020; }
-  .info { background: #eef4fb; border: 1px solid #bcd6ee; padding: 0.6rem 0.9rem; border-radius: 3px; font-size: 0.9rem; margin-bottom: 1.5rem; }
-  .warn { background: #fff8e6; border: 1px solid #f0dca0; padding: 0.6rem 0.9rem; border-radius: 3px; font-size: 0.9rem; margin-bottom: 1.5rem; }
-  .nav { margin-bottom: 1.5rem; font-size: 0.9rem; }
-  .nav a { margin-right: 1rem; }
-  .placeholder-badge { display: inline-block; font-size: 0.7rem; background: #fff3cd; color: #856404; padding: 0.05rem 0.4rem; border-radius: 3px; margin-left: 0.4rem; cursor: help; }
-  .sev-high { color: #b00020; font-weight: 600; }
-  .sev-medium { color: #a15c00; font-weight: 600; }
-  .sev-low { color: #555; }
-  .status-ok { color: #1a7a1a; }
-  .status-flagged { color: #b00020; font-weight: 600; }
-  .status-none { color: #888; }
-  fieldset { border: 1px solid #ddd; border-radius: 4px; margin-bottom: 1.5rem; }
-  label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
-  input, select { padding: 0.4rem; margin-top: 0.2rem; box-sizing: border-box; }
-  button { padding: 0.4rem 0.9rem; cursor: pointer; }
-  .autofilled { background: #eef7ee; }
-  .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-bottom: 1.5rem; }
-  .actions form { display: flex; gap: 0.4rem; align-items: center; background: #f7f7f7; padding: 0.5rem 0.75rem; border-radius: 4px; margin: 0; }
-  .actions label { margin: 0; font-size: 0.8rem; color: #555; }
-  .actions select { margin: 0; }
-  .discipline-section { margin-bottom: 1.5rem; }
-  .discipline-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 0.4rem; text-transform: capitalize; }
-  .badge-count { display: inline-block; background: #eee; border-radius: 10px; padding: 0 0.5rem; font-size: 0.75rem; margin-left: 0.4rem; }
-  .revise-form { display: inline; }
-  .revise-form button { margin: 0; padding: 0.15rem 0.5rem; font-size: 0.8rem; }
-  .new-project { display: flex; gap: 0.75rem; align-items: flex-end; margin-bottom: 1.5rem; }
-  .new-project label { flex: 1; margin-top: 0; }
-  .new-project input, .new-project select { width: 100%; }
-  .new-project button { margin: 0; }
-"""
-
-NAV = '<div class="nav"><a href="/">Projects</a><a href="/jurisdictions">Jurisdictions</a></div>'
-
-
-PROJECTS_PAGE = """
-<!doctype html>
-<title>Projects - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """</style>
-
-""" + NAV + """
-<h1>Projects</h1>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-
-{% if not jurisdictions %}
-<p class="warn">No jurisdictions have reference documentation loaded yet -
-  <a href="/jurisdictions">add one</a> before creating a project.</p>
-{% endif %}
-
-<form method="post" action="/projects" class="new-project">
-  <label>New project name
-    <input name="project_name" required>
-  </label>
-  <label>Jurisdiction
-    <select name="jurisdiction_id" {% if not jurisdictions %}disabled{% endif %} required>
-      {% for j in jurisdictions %}<option value="{{ j.id }}">{{ j.name }}</option>{% endfor %}
-    </select>
-  </label>
-  <button type="submit">Create project</button>
-</form>
-
-<table>
-  <tr><th>Project</th><th>Jurisdiction</th><th>Latest revision</th><th>Sheets</th><th>vs. code</th><th>cross-discipline</th></tr>
-  {% for row in rows %}
-  <tr>
-    <td><a href="/projects/{{ row.id }}">{{ row.name }}</a></td>
-    <td>{{ row.jurisdiction }}</td>
-    <td>{{ row.revision }}</td>
-    <td>{{ row.sheet_count }}</td>
-    <td class="{{ row.jurisdiction_status_class }}">{{ row.jurisdiction_status }}</td>
-    <td class="{{ row.cross_status_class }}">{{ row.cross_status }}</td>
-  </tr>
-  {% endfor %}
-  {% if not rows %}
-  <tr><td colspan="6" class="meta">No projects yet - create one above.</td></tr>
-  {% endif %}
-</table>
-"""
-
-PROJECT_PAGE = """
-<!doctype html>
-<title>{{ project.name }} - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """</style>
-
-""" + NAV + """
-<p><a href="/">&larr; all projects</a></p>
-<h1>{{ project.name }}</h1>
-<p class="meta">
-  Jurisdiction: {{ project.jurisdiction.name }}
-  &middot; vs. code: <span class="{{ jurisdiction_status_class }}">{{ jurisdiction_status }}</span>
-  &middot; cross-discipline: <span class="{{ cross_status_class }}">{{ cross_status }}</span>
-</p>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-
-{% if missing_disciplines %}
-<p class="warn">No sheets yet for: {{ missing_disciplines|join(', ') }}</p>
-{% endif %}
-
-<div class="actions">
-  <form method="post" action="/projects/{{ project.id }}/new-revision">
-    <button type="submit">Start new revision</button>
-  </form>
-  <form method="post" action="/projects/{{ project.id }}/check">
-    <label>Engine</label>
-    <select name="engine">
-      <option value="mock">mock (no API key)</option>
-      <option value="groq">groq (free tier)</option>
-      <option value="real">real (Claude, paid)</option>
-    </select>
-    <label title="Re-check every current clause from scratch, instead of only the ones never checked before">
-      <input type="checkbox" name="force" value="1" style="width: auto; padding: 0;"> full re-check
-    </label>
-    <button type="submit">Check vs. code</button>
-  </form>
-  <form method="post" action="/projects/{{ project.id }}/check-cross-discipline">
-    <label>Engine</label>
-    <select name="engine">
-      <option value="preview" title="Shows the semantic-similarity matches without judging conflict vs. no conflict - no API key needed">preview candidates (no LLM)</option>
-      <option value="groq">groq (free tier)</option>
-      <option value="real">real (Claude, paid)</option>
-    </select>
-    <label title="Re-check every current clause from scratch, instead of only the ones never checked before">
-      <input type="checkbox" name="force" value="1" style="width: auto; padding: 0;"> full re-check
-    </label>
-    <button type="submit">Check cross-discipline</button>
-  </form>
-  <a href="/projects/{{ project.id }}/flags">View current flags &rarr;</a>
-</div>
-
-<h2>Current sheets{% if latest_submission %} <span class="meta">(as of {{ latest_submission.revision_label }} - each sheet shows its own most recent version)</span>{% endif %}</h2>
-{% for discipline, rows in sheet_rows|groupby('discipline') %}
-<div class="discipline-section">
-  <div class="discipline-title">{{ discipline }} <span class="badge-count">{{ rows|length }}</span></div>
-  <table>
-    <tr><th>Sheet</th><th>Title</th><th>Type</th><th>File</th><th>Clauses</th><th>Submitted by</th><th>Ingested</th><th></th></tr>
-    {% for row in rows %}
-    <tr>
-      <td class="label">{{ row.sheet }}</td>
-      <td>{{ row.title }}</td>
-      <td>{{ row.doc_type }}</td>
-      <td><a href="/files/{{ row.id }}">{{ row.filename }}</a></td>
-      <td>
-        {% if row.clause_count %}<a href="/documents/{{ row.id }}/clauses">{{ row.clause_count }}</a>{% else %}0{% endif %}
-      </td>
-      <td>
-        {{ row.submitted_by }}
-        {% if row.submitted_by_is_placeholder %}
-        <span class="placeholder-badge" title="Hardcoded until web auth is wired up - will show the real logged-in user">placeholder</span>
-        {% endif %}
-      </td>
-      <td>{{ row.ingested_at }}</td>
-      <td>
-        <form method="post" action="/documents/{{ row.id }}/revise" class="revise-form">
-          <button type="submit" title="Start a new revision pre-filled with this sheet's info">Revise</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
-</div>
-{% endfor %}
-{% if not sheet_rows %}
-<p class="meta">No sheets ingested yet - add one below.</p>
-{% endif %}
-
-<h2>Add a sheet</h2>
-{% if revising %}
-<p class="info">Revising <strong>{{ prefill_sheet_number }}</strong> as a new revision - pick the updated file below.</p>
-{% endif %}
-<form method="post" action="/projects/{{ project.id }}/ingest" enctype="multipart/form-data">
-  <fieldset>
-    <label>Sheet number
-      <input id="sheet_number" name="sheet_number" value="{{ prefill_sheet_number }}" required>
-    </label>
-    <label id="title_label">Title
-      <input id="title" name="title" value="{{ prefill_title }}" required>
-    </label>
-    <label id="discipline_label">Discipline
-      <select id="discipline" name="discipline">
-        {% for d in disciplines %}<option value="{{ d }}" {% if d == prefill_discipline %}selected{% endif %}>{{ d }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>File
-      <input type="file" name="file" required>
-    </label>
-    <button type="submit">Ingest</button>
-  </fieldset>
-</form>
-
-<h2>Revision history</h2>
-<table>
-  <tr><th>Revision</th><th>Submitted</th><th></th></tr>
-  {% for s, previous_seq in submission_rows %}
-  <tr>
-    <td>{{ s.revision_label }}</td>
-    <td>{{ s.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
-    <td>
-      {% if previous_seq %}
-      <a href="/projects/{{ project.id }}/diff?from={{ previous_seq }}&to={{ s.sequence_number }}">view diff vs. previous</a>
-      {% else %}
-      <span class="meta">first revision</span>
-      {% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-
-<script>
-  const PROJECT_ID = "{{ project.id }}";
-  async function autofillFromExistingSheet() {
-    const sheet = document.getElementById('sheet_number').value.trim();
-    const titleInput = document.getElementById('title');
-    const disciplineSelect = document.getElementById('discipline');
-    titleInput.classList.remove('autofilled');
-    disciplineSelect.classList.remove('autofilled');
-    if (!sheet) return;
-
-    const res = await fetch(`/series-info?project_id=${encodeURIComponent(PROJECT_ID)}&sheet_number=${encodeURIComponent(sheet)}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data) return;
-
-    titleInput.value = data.title;
-    disciplineSelect.value = data.discipline;
-    titleInput.classList.add('autofilled');
-    disciplineSelect.classList.add('autofilled');
-  }
-  document.getElementById('sheet_number').addEventListener('blur', autofillFromExistingSheet);
-</script>
-"""
-
-JURISDICTIONS_PAGE = """
-<!doctype html>
-<title>Jurisdictions - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """</style>
-
-""" + NAV + """
-<h1>Jurisdictions</h1>
-<p class="meta">Only jurisdictions listed here (with at least one document loaded) are selectable when creating a project.</p>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-
-<form method="post" action="/jurisdictions/documents" enctype="multipart/form-data">
-  <fieldset>
-    <label>Jurisdiction name
-      <input name="jurisdiction_name" list="jurisdiction_names" required>
-      <datalist id="jurisdiction_names">
-        {% for j in jurisdictions %}<option value="{{ j.name }}">{% endfor %}
-      </datalist>
-    </label>
-    <label>Document title
-      <input name="title" required>
-    </label>
-    <label>File (code book, amendment, etc.)
-      <input type="file" name="file" required>
-    </label>
-    <button type="submit">Add reference document</button>
-  </fieldset>
-</form>
-
-<h2>Loaded jurisdictions</h2>
-<table>
-  <tr><th>Jurisdiction</th><th>Document</th><th>Type</th><th>Clauses</th><th>Ingested</th></tr>
-  {% for row in rows %}
-  <tr>
-    <td>{{ row.jurisdiction_name }}</td>
-    <td>{{ row.title }}</td>
-    <td>{{ row.doc_type }}</td>
-    <td>
-      {% if row.clause_count %}<a href="/jurisdictions/documents/{{ row.id }}/clauses">{{ row.clause_count }}</a>{% else %}0{% endif %}
-    </td>
-    <td>{{ row.ingested_at }}</td>
-  </tr>
-  {% endfor %}
-</table>
-"""
-
-CLAUSES_PAGE = """
-<!doctype html>
-<title>Clauses - {{ sheet_number }} - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """</style>
-
-<p><a href="{{ back_href }}">&larr; back</a></p>
-<h1>{{ sheet_number }} &mdash; {{ title }}</h1>
-<p class="meta">{{ project }} / {{ revision }} / {{ discipline }} / {{ doc_type }}</p>
-
-<table>
-  <tr><th>Label</th><th>Text</th><th>Page</th><th>Extraction method</th></tr>
-  {% for c in clauses %}
-  <tr>
-    <td class="label">{{ c.clause_label }}</td>
-    <td>{{ c.text }}</td>
-    <td>{{ c.location.get('page', '-') }}</td>
-    <td>{{ c.extraction_method.value }}</td>
-  </tr>
-  {% endfor %}
-</table>
-"""
-
-FLAGS_PAGE = """
-<!doctype html>
-<title>Flags - {{ project }} - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """</style>
-
-<p><a href="/projects/{{ project_id }}">&larr; back to {{ project }}</a></p>
-<h1>Current flags &mdash; {{ project }}</h1>
-<p class="info">Every clause is only ever reasoned about once per check type - a flag
-  found under an earlier revision stays current here until the clause it's about is
-  itself superseded by a later revision, not until the whole project is re-checked.</p>
-<p class="meta">{{ flags|length }} flag(s) found &middot; <a href="/projects/{{ project_id }}/audit-report">view audit report</a></p>
-
-<table>
-  <tr><th>Type</th><th>Severity</th><th>Clause</th><th>Found in</th><th>Explanation</th><th>Cited</th><th>Model</th><th></th></tr>
-  {% for f in flags %}
-  <tr>
-    <td>{{ "cross-discipline" if f.check_type.value == "cross_discipline" else "vs. code" }}</td>
-    <td class="sev-{{ f.severity.value }}">{{ f.severity.value }}</td>
-    <td class="label">{{ f.clause.clause_label }}</td>
-    <td>{{ f.submission.revision_label }}</td>
-    <td>{{ f.explanation }}</td>
-    <td>
-      {% for c in f.citations %}
-        {% if c.jurisdiction_clause %}<div>{{ c.jurisdiction_clause.clause_label }}</div>{% endif %}
-        {% if c.clause %}<div>{{ c.clause.series.discipline.value }} {{ c.clause.clause_label }}</div>{% endif %}
-      {% endfor %}
-    </td>
-    <td>
-      {{ f.model }}
-      {% if f.is_simulated %}<span class="placeholder-badge" title="Keyword heuristic, not real model reasoning">simulated</span>{% endif %}
-    </td>
-    <td><a href="/flags/{{ f.id }}/reasoning">view reasoning</a></td>
-  </tr>
-  {% endfor %}
-</table>
-"""
-
-REASONING_PAGE = """
-<!doctype html>
-<title>Reasoning - {{ flag.clause.clause_label }} - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """
-  .meta div { margin-bottom: 0.2rem; }
-  pre {
-    background: #f6f6f6; border: 1px solid #ddd; border-radius: 3px; padding: 0.8rem;
-    white-space: pre-wrap; word-break: break-word; font-size: 0.85rem;
-  }
-</style>
-
-<p><a href="/submissions/{{ flag.submission_id }}/flags">&larr; back to flags</a></p>
-<h1>Reasoning trace</h1>
-
-<div class="meta">
-  <div>Clause: <span class="label">{{ flag.clause.clause_label }}</span></div>
-  <div>Severity: <span class="sev-{{ flag.severity.value }}">{{ flag.severity.value }}</span></div>
-  <div>Engine: {{ llm_call.engine }} / {{ llm_call.model }}</div>
-  <div>Tokens: {{ llm_call.input_tokens if llm_call.input_tokens is not none else '-' }} in
-       / {{ llm_call.output_tokens if llm_call.output_tokens is not none else '-' }} out</div>
-  <div>Latency: {{ llm_call.latency_ms }} ms</div>
-  <div>Called: {{ llm_call.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
-</div>
-
-<h2>Flag explanation</h2>
-<pre>{{ flag.explanation }}</pre>
-
-<h2>Prompt sent to model</h2>
-<pre>{{ llm_call.prompt }}</pre>
-
-<h2>Raw model response</h2>
-<pre>{{ llm_call.raw_response }}</pre>
-"""
-
-CROSS_DISCIPLINE_CANDIDATES_PAGE = """
-<!doctype html>
-<title>Cross-discipline candidates - {{ project.name }} - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """
-  .score { font-variant-numeric: tabular-nums; color: #444; }
-</style>
-
-<p><a href="/projects/{{ project.id }}">&larr; back to {{ project.name }}</a></p>
-<h1>Cross-discipline candidates &mdash; {{ project.name }} {{ revision }}</h1>
-<p class="info">Retrieval only - no LLM was called. This is the semantic-similarity
-  matching step that narrows candidates before a reasoning engine judges whether
-  a real conflict exists; it does not itself determine conflict vs. no conflict.</p>
-
-<table>
-  <tr><th>Clause</th><th>Candidate (other discipline)</th><th>Similarity</th></tr>
-  {% for clause, candidates in rows %}
-    {% for candidate, score in candidates %}
-    <tr>
-      <td class="label">{{ clause.series.discipline.value }} {{ clause.clause_label }}: {{ clause.text[:80] }}</td>
-      <td class="label">{{ candidate.series.discipline.value }} {{ candidate.clause_label }}: {{ candidate.text[:80] }}</td>
-      <td class="score">{{ "%.2f"|format(score) }}</td>
-    </tr>
-    {% else %}
-    <tr>
-      <td class="label">{{ clause.series.discipline.value }} {{ clause.clause_label }}</td>
-      <td colspan="2">(no candidates above similarity threshold)</td>
-    </tr>
-    {% endfor %}
-  {% endfor %}
-</table>
-"""
-
-DIFF_PAGE = """
-<!doctype html>
-<title>Diff {{ from_revision }} → {{ to_revision }} - {{ project.name }} - Plan Review Copilot</title>
-<style>""" + BASE_STYLE + """
-  .added { background: #eaf7ea; }
-  .removed { background: #fbeaea; text-decoration: line-through; color: #7a3030; }
-  .diff-tag { font-size: 0.7rem; text-transform: uppercase; font-weight: 600; padding: 0.05rem 0.4rem; border-radius: 3px; margin-right: 0.4rem; }
-  .diff-tag-new { background: #d6ecd6; color: #1a5c1a; }
-  .diff-tag-removed { background: #f3d6d6; color: #7a3030; }
-</style>
-
-<p><a href="/projects/{{ project.id }}">&larr; back to {{ project.name }}</a></p>
-<h1>Diff: {{ from_revision }} &rarr; {{ to_revision }}</h1>
-<p class="meta">{{ project.name }} &middot; sheets with no change between these two revisions are omitted</p>
-
-{% if not sheets %}
-<p class="info">No clause-level changes between these two revisions.</p>
-{% endif %}
-
-{% for sheet in sheets %}
-<div class="discipline-section">
-  <div class="discipline-title">
-    {% if sheet.is_new_sheet %}<span class="diff-tag diff-tag-new">new sheet</span>{% endif %}
-    {% if sheet.is_removed_sheet %}<span class="diff-tag diff-tag-removed">removed</span>{% endif %}
-    {{ sheet.series.discipline.value }} {{ sheet.series.sheet_number }} &mdash; {{ sheet.series.title }}
-    <span class="badge-count">{{ sheet.unchanged_count }} unchanged</span>
-  </div>
-  <table>
-    <tr><th>Change</th><th>Label</th><th>Text</th></tr>
-    {% for c in sheet.added %}
-    <tr class="added">
-      <td><span class="diff-tag diff-tag-new">added</span></td>
-      <td class="label">{{ c.clause_label }}</td>
-      <td>{{ c.text }}</td>
-    </tr>
-    {% endfor %}
-    {% for c in sheet.removed %}
-    <tr class="removed">
-      <td><span class="diff-tag diff-tag-removed">removed</span></td>
-      <td class="label">{{ c.clause_label }}</td>
-      <td>{{ c.text }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-</div>
-{% endfor %}
-"""
-
-AUDIT_REPORT_PAGE = """
-<!doctype html>
-<title>Audit report - {{ project.name }} - Plan Review Copilot</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  .no-print { margin-bottom: 1.5rem; }
-  .no-print a, .no-print button { margin-right: 0.75rem; }
-  header { border-bottom: 3px solid #1a1a1a; padding-bottom: 1rem; margin-bottom: 1.5rem; }
-  header h1 { font-size: 1.5rem; margin: 0 0 0.2rem 0; }
-  header .subtitle { color: #555; font-size: 0.9rem; }
-  .summary { display: flex; gap: 1.5rem; margin-bottom: 2rem; flex-wrap: wrap; }
-  .summary-card { border: 1px solid #ccc; border-radius: 4px; padding: 0.6rem 1rem; min-width: 120px; }
-  .summary-card .n { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .summary-card .label { font-size: 0.75rem; color: #555; text-transform: uppercase; letter-spacing: 0.03em; }
-  table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
-  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; font-size: 0.82rem; vertical-align: top; }
-  th { border-bottom: 2px solid #999; }
-  .label { font-family: ui-monospace, monospace; white-space: nowrap; }
-  .sev-high { color: #b00020; font-weight: 600; }
-  .sev-medium { color: #a15c00; font-weight: 600; }
-  .sev-low { color: #555; }
-  footer { color: #888; font-size: 0.75rem; margin-top: 2rem; border-top: 1px solid #ddd; padding-top: 0.75rem; }
-  @media print {
-    .no-print { display: none; }
-    body { margin: 0; max-width: none; }
-    a { color: inherit; text-decoration: none; }
-  }
-</style>
-
-<div class="no-print">
-  <a href="/projects/{{ project.id }}">&larr; back to {{ project.name }}</a>
-  <a href="/projects/{{ project.id }}/audit-report.csv">Download CSV</a>
-  <button onclick="window.print()">Print / Save as PDF</button>
-</div>
-
-<header>
-  <h1>Conflict Detection Audit Report</h1>
-  <div class="subtitle">
-    {{ project.name }} &middot; Jurisdiction: {{ project.jurisdiction.name }} &middot; Generated {{ generated_at }}
-  </div>
-</header>
-
-<div class="summary">
-  <div class="summary-card"><div class="n">{{ flags|length }}</div><div class="label">Total flags</div></div>
-  <div class="summary-card"><div class="n">{{ high_count }}</div><div class="label">High severity</div></div>
-  <div class="summary-card"><div class="n">{{ medium_count }}</div><div class="label">Medium severity</div></div>
-  <div class="summary-card"><div class="n">{{ low_count }}</div><div class="label">Low severity</div></div>
-  <div class="summary-card"><div class="n">{{ sheet_count }}</div><div class="label">Sheets covered</div></div>
-</div>
-
-<table>
-  <tr><th>Type</th><th>Severity</th><th>Sheet / Clause</th><th>Finding</th><th>Cited</th><th>Model</th><th>Revision</th><th>Timestamp</th></tr>
-  {% for f in flags %}
-  <tr>
-    <td>{{ "cross-discipline" if f.check_type.value == "cross_discipline" else "vs. code" }}</td>
-    <td class="sev-{{ f.severity.value }}">{{ f.severity.value }}</td>
-    <td class="label">{{ f.clause.series.discipline.value }} {{ f.clause.series.sheet_number }} / {{ f.clause.clause_label }}</td>
-    <td>
-      {{ f.explanation }}
-      {% if f.is_simulated %}<br><em>(simulated - keyword heuristic, not model reasoning)</em>{% endif %}
-    </td>
-    <td>
-      {% for c in f.citations %}
-        {% if c.jurisdiction_clause %}<div>{{ c.jurisdiction_clause.clause_label }}</div>{% endif %}
-        {% if c.clause %}<div>{{ c.clause.series.discipline.value }} {{ c.clause.clause_label }}</div>{% endif %}
-      {% endfor %}
-    </td>
-    <td>{{ f.model }}</td>
-    <td>{{ f.submission.revision_label }}</td>
-    <td>{{ f.llm_call.created_at.strftime('%Y-%m-%d %H:%M') if f.llm_call else '-' }}</td>
-  </tr>
-  {% endfor %}
-  {% if not flags %}
-  <tr><td colspan="8">No flags found - project is clean as of this report.</td></tr>
-  {% endif %}
-</table>
-
-<footer>
-  Generated by Plan Review Copilot. Reflects the project's current flag set as of {{ generated_at }} -
-  a "current" flag is one whose clause is still part of the project's live document set; superseded
-  clauses' historical flags are retained in the system but excluded from this report. Full reasoning
-  traces (prompt, raw model response, token usage) for any flag are available in the application.
-</footer>
-"""
-
-
 def _check_status(session, project_id, has_submission, check_type):
     """(status text, CSS class) for one check_type on a project - shown on
     both the project list (at a glance) and the project page (in detail).
@@ -694,11 +149,18 @@ def _project_summary_rows(session):
     return rows
 
 
+def _severity_rank_sort(flags):
+    # Sorted in Python, not SQL - severity is stored as text, so a SQL ORDER BY
+    # would sort alphabetically ("medium" > "low" > "high"), not by actual severity.
+    severity_rank = {"high": 0, "medium": 1, "low": 2}
+    return sorted(flags, key=lambda f: severity_rank[f.severity.value])
+
+
 @app.get("/")
 def index():
     session = get_session()
-    return render_template_string(
-        PROJECTS_PAGE,
+    return render_template(
+        "projects.html",
         jurisdictions=jurisdictions_with_documentation(session),
         rows=_project_summary_rows(session),
         error=request.args.get("error"),
@@ -771,8 +233,8 @@ def project_detail(project_id):
         for i, s in enumerate(submissions)
     ]
 
-    return render_template_string(
-        PROJECT_PAGE,
+    return render_template(
+        "project_detail.html",
         project=project,
         submissions=submissions,
         submission_rows=submission_rows,
@@ -933,8 +395,8 @@ def cross_discipline_candidates(project_id):
     candidates_by_clause = find_candidate_cross_discipline_clauses_scored(clauses)
     rows = [(clause, candidates_by_clause.get(clause.id, [])) for clause in clauses]
 
-    return render_template_string(
-        CROSS_DISCIPLINE_CANDIDATES_PAGE,
+    return render_template(
+        "cross_discipline_candidates.html",
         project=project,
         revision=submission.revision_label,
         rows=rows,
@@ -962,18 +424,13 @@ def project_diff(project_id):
     sheets = diff_between_submissions(session, project.id, from_seq, to_seq)
     sheets.sort(key=lambda s: (s["series"].discipline.value, s["series"].sheet_number))
 
-    return render_template_string(
-        DIFF_PAGE,
+    return render_template(
+        "diff.html",
         project=project,
         from_revision=from_submission.revision_label,
         to_revision=to_submission.revision_label,
         sheets=sheets,
     )
-
-
-def _severity_rank_sort(flags):
-    severity_rank = {"high": 0, "medium": 1, "low": 2}
-    return sorted(flags, key=lambda f: severity_rank[f.severity.value])
 
 
 @app.get("/projects/<project_id>/audit-report")
@@ -986,8 +443,8 @@ def project_audit_report(project_id):
     flags = _severity_rank_sort(current_flags_for_project(session, project_id))
     sheet_count = session.query(DocumentSeries).filter_by(project_id=project_id).count()
 
-    return render_template_string(
-        AUDIT_REPORT_PAGE,
+    return render_template(
+        "audit_report.html",
         project=project,
         flags=flags,
         sheet_count=sheet_count,
@@ -1061,8 +518,8 @@ def project_flags(project_id):
         return redirect("/?error=Project not found")
 
     flags = _severity_rank_sort(current_flags_for_project(session, project_id))
-    return render_template_string(
-        FLAGS_PAGE,
+    return render_template(
+        "flags.html",
         project=project.name,
         project_id=project.id,
         flags=flags,
@@ -1075,7 +532,7 @@ def flag_reasoning(flag_id):
     flag = session.get(Flag, flag_id)
     if flag is None:
         return redirect("/?error=Flag not found")
-    return render_template_string(REASONING_PAGE, flag=flag, llm_call=flag.llm_call)
+    return render_template("reasoning.html", flag=flag, llm_call=flag.llm_call)
 
 
 @app.get("/jurisdictions")
@@ -1099,8 +556,8 @@ def jurisdictions():
         }
         for d in documents
     ]
-    return render_template_string(
-        JURISDICTIONS_PAGE,
+    return render_template(
+        "jurisdictions.html",
         jurisdictions=all_jurisdictions,
         rows=rows,
         error=request.args.get("error"),
@@ -1146,8 +603,8 @@ def jurisdiction_document_clauses(document_id):
         .order_by(JurisdictionClause.clause_label)
         .all()
     )
-    return render_template_string(
-        CLAUSES_PAGE,
+    return render_template(
+        "clauses.html",
         back_href="/jurisdictions",
         sheet_number=document.jurisdiction.name,
         title=document.title,
@@ -1173,8 +630,8 @@ def document_clauses(document_id):
         .order_by(Clause.clause_label)
         .all()
     )
-    return render_template_string(
-        CLAUSES_PAGE,
+    return render_template(
+        "clauses.html",
         back_href=f"/projects/{document.series.project_id}",
         sheet_number=document.series.sheet_number,
         title=document.series.title,

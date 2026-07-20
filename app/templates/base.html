@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script>
+    // Runs synchronously before paint so a returning dark-mode user doesn't
+    // see a light flash - light is still the default for everyone else,
+    // matched to the CSS's default :root (no attribute needed for light).
+    (function () {
+      try {
+        if (localStorage.getItem('theme') === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <title>{% block title %}Plan Review Copilot{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <header class="site"><div class="wrap">
+    <a class="wordmark serif" href="/">Plan Review <span class="thin">Copilot</span></a>
+    <div class="header-right">
+      <nav class="site-nav">
+        <a href="/">Projects</a>
+        <a href="/jurisdictions">Jurisdictions</a>
+        <div class="nav-dropdown">
+          <button type="button" class="nav-dropdown-toggle" onclick="toggleDiagramsMenu(event)">Diagrams <span class="chevron">&#9662;</span></button>
+          <div id="diagrams-menu" class="nav-dropdown-menu" hidden>
+            <a href="#" onclick="openDiagramsModal('workflow'); return false;">Workflow</a>
+            <a href="#" onclick="openDiagramsModal('erd'); return false;">Data model</a>
+          </div>
+        </div>
+      </nav>
+      <button class="theme-toggle" type="button" onclick="toggleTheme()">
+        <span id="theme-icon"></span><span id="theme-label"></span>
+      </button>
+    </div>
+  </div></header>
+
+  <div class="wrap">
+    {% block content %}{% endblock %}
+  </div>
+
+  <!-- Diagrams modal: docs/ERD.md and docs/WORKFLOW.md, kept in sync by hand -
+       same mermaid source as those files, see each doc for the prose walkthrough. -->
+  <div id="diagrams-overlay" class="modal-overlay" hidden onclick="if (event.target === this) closeDiagramsModal();">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Architecture diagrams">
+      <div class="modal-header">
+        <div class="modal-tabs">
+          <button type="button" class="modal-tab active" data-diagram="workflow" onclick="showDiagram('workflow')">Workflow</button>
+          <button type="button" class="modal-tab" data-diagram="erd" onclick="showDiagram('erd')">Data model</button>
+        </div>
+        <button type="button" class="modal-close" onclick="closeDiagramsModal()" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="diagram-workflow" class="diagram-pane active">
+          <p class="meta">Ingest &rarr; retrieve &rarr; reason &rarr; trace &amp; persist &rarr; continuous re-check. See <span class="mono">docs/WORKFLOW.md</span> for the stage-by-stage notes.</p>
+          <div class="mermaid-output" id="mermaid-output-workflow"></div>
+          <script type="text/plain" id="mermaid-source-workflow">
+flowchart TD
+    classDef ingest fill:#1D5FA6,stroke:#123A66,color:#fff,stroke-width:2px
+    classDef retrieve fill:#3B7EA1,stroke:#2A5F7A,color:#fff,stroke-width:2px
+    classDef reason fill:#C1502E,stroke:#8F3A20,color:#fff,stroke-width:2px
+    classDef persist fill:#1B2430,stroke:#000000,color:#fff,stroke-width:2px
+    classDef cont fill:#4C7A5E,stroke:#345741,color:#fff,stroke-width:2px
+    classDef decision fill:#F6F3EC,stroke:#1B2430,color:#1B2430,stroke-width:2px
+
+    subgraph S1["1 - INGEST"]
+        A["Upload plan set<br/>multi-discipline PDF / spec"]:::ingest --> B["Split into clauses<br/>regex + page/paragraph rules"]:::ingest
+        B --> C[("Clause store<br/>content-hash deduped")]:::ingest
+    end
+
+    subgraph S2["2 - RETRIEVE"]
+        D{"Check type"}:::decision
+        D -->|"vs. code"| E["Embedding similarity -<br/>jurisdiction clauses"]:::retrieve
+        D -->|"cross-discipline"| F["Embedding similarity -<br/>other-discipline clauses"]:::retrieve
+    end
+
+    subgraph S3["3 - REASON"]
+        G["LLM reasoning<br/>forced tool-use, citation-grounded"]:::reason
+        H{"Conflict found?"}:::decision
+        G --> H
+    end
+
+    subgraph S4["4 - TRACE and PERSIST"]
+        I["Flag + citation"]:::persist
+        J["Audit record only"]:::persist
+        K[("LLM call log<br/>prompt / response / tokens / latency")]:::persist
+    end
+
+    subgraph S5["5 - CONTINUOUS"]
+        L["New revision uploaded"]:::cont
+        M{"Clause content changed?"}:::decision
+    end
+
+    C --> D
+    E --> G
+    F --> G
+    H -->|"yes"| I
+    H -->|"no"| J
+    I --> K
+    J --> K
+    K --> L
+    L --> M
+    M -->|"no - skip, already reasoned"| K
+    M -->|"yes"| C
+          </script>
+        </div>
+        <div id="diagram-erd" class="diagram-pane">
+          <p class="meta">See <span class="mono">docs/ERD.md</span> for the full field-by-field walkthrough.</p>
+          <div class="mermaid-output" id="mermaid-output-erd"></div>
+          <script type="text/plain" id="mermaid-source-erd">
+erDiagram
+    JURISDICTION {
+        string id PK
+        string name UK
+        datetime created_at
+    }
+
+    JURISDICTION_DOCUMENT {
+        string id PK
+        string jurisdiction_id FK
+        string title
+        string doc_type
+        string file_uri
+        string file_hash
+        json metadata
+        datetime ingested_at
+    }
+
+    JURISDICTION_CLAUSE {
+        string id PK
+        string jurisdiction_document_id FK
+        string clause_label
+        string text
+        string content_hash UK
+        string extraction_method
+        json location
+        datetime created_at
+    }
+
+    PROJECT {
+        string id PK
+        string name
+        string jurisdiction_id FK
+        datetime created_at
+    }
+
+    SUBMISSION {
+        string id PK
+        string project_id FK
+        string revision_label
+        int sequence_number UK
+        datetime submitted_at
+        string submitted_by
+        string status
+        datetime created_at
+    }
+
+    DOCUMENT_SERIES {
+        string id PK
+        string project_id FK
+        string discipline
+        string sheet_number UK
+        string title
+    }
+
+    DOCUMENT {
+        string id PK
+        string document_series_id FK
+        string submission_id FK
+        string doc_type
+        string file_uri
+        string file_hash
+        json metadata
+        datetime ingested_at
+    }
+
+    CLAUSE {
+        string id PK
+        string document_series_id FK
+        string clause_label
+        string text
+        string content_hash UK
+        string extraction_method
+        json location
+        string first_seen_document_id FK
+        datetime created_at
+    }
+
+    DOCUMENT_CLAUSE {
+        string document_id PK
+        string clause_id PK
+    }
+
+    LLM_CALL {
+        string id PK
+        string submission_id FK
+        string clause_id FK
+        string check_type
+        string engine
+        string model
+        string prompt
+        string raw_response
+        int input_tokens
+        int output_tokens
+        int latency_ms
+        datetime created_at
+    }
+
+    FLAG {
+        string id PK
+        string submission_id FK
+        string clause_id FK
+        string llm_call_id FK
+        string check_type
+        string severity
+        string explanation
+        string model
+        bool is_simulated
+        datetime created_at
+    }
+
+    FLAG_CITATION {
+        string id PK
+        string flag_id FK
+        string clause_id FK
+        string jurisdiction_clause_id FK
+    }
+
+    JURISDICTION ||--o{ JURISDICTION_DOCUMENT : "has reference docs"
+    JURISDICTION_DOCUMENT ||--o{ JURISDICTION_CLAUSE : "owns"
+    JURISDICTION ||--o{ PROJECT : "governs"
+
+    PROJECT ||--o{ SUBMISSION : "has revisions"
+    PROJECT ||--o{ DOCUMENT_SERIES : "has sheets/specs"
+    SUBMISSION ||--o{ DOCUMENT : "contains versions"
+    DOCUMENT_SERIES ||--o{ DOCUMENT : "has versions"
+    DOCUMENT_SERIES ||--o{ CLAUSE : "owns"
+    DOCUMENT ||--o{ DOCUMENT_CLAUSE : "includes"
+    CLAUSE ||--o{ DOCUMENT_CLAUSE : "appears in"
+    DOCUMENT ||--o| CLAUSE : "first_seen_document_id"
+
+    SUBMISSION ||--o{ LLM_CALL : "audited by"
+    CLAUSE ||--o{ LLM_CALL : "reasoned over in"
+    LLM_CALL ||--o{ FLAG : "produced"
+    SUBMISSION ||--o{ FLAG : "raised against"
+    CLAUSE ||--o{ FLAG : "about"
+    FLAG ||--o{ FLAG_CITATION : "supported by"
+    CLAUSE ||--o{ FLAG_CITATION : "cited as (project clause)"
+    JURISDICTION_CLAUSE ||--o{ FLAG_CITATION : "cited as (code clause)"
+          </script>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function paintThemeToggle() {
+      var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+      document.getElementById('theme-icon').innerHTML = dark ? '&#9728;' : '&#9789;';
+      document.getElementById('theme-label').textContent = dark ? 'Light' : 'Dark';
+    }
+    function toggleTheme() {
+      var goingDark = document.documentElement.getAttribute('data-theme') !== 'dark';
+      if (goingDark) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+      try { localStorage.setItem('theme', goingDark ? 'dark' : 'light'); } catch (e) {}
+      paintThemeToggle();
+    }
+    paintThemeToggle();
+
+    function toggleDiagramsMenu(e) {
+      e.stopPropagation();
+      var menu = document.getElementById('diagrams-menu');
+      menu.hidden = !menu.hidden;
+    }
+    document.addEventListener('click', function () {
+      document.getElementById('diagrams-menu').hidden = true;
+    });
+
+    // Rendered from the original source text into a dedicated output div,
+    // exactly once per diagram (tracked here) - NOT mermaid.run() against
+    // the source element in place, which re-parses whatever is currently in
+    // the DOM. The second time a diagram was opened, that meant re-parsing
+    // its own previous SVG output as if it were mermaid syntax, which is
+    // exactly what broke the workflow diagram on a second view.
+    var mermaidLoading = false;
+    var mermaidRendered = {};
+    function renderDiagram(name) {
+      if (mermaidRendered[name] || !window.mermaid) return;
+      var source = document.getElementById('mermaid-source-' + name).textContent;
+      var theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+      mermaid.initialize({ startOnLoad: false, theme: theme, securityLevel: 'loose' });
+      mermaid.render('mermaid-svg-' + name, source).then(function (result) {
+        document.getElementById('mermaid-output-' + name).innerHTML = result.svg;
+        mermaidRendered[name] = true;
+      }).catch(function (err) {
+        document.getElementById('mermaid-output-' + name).innerHTML =
+          '<p class="error">Diagram failed to render: ' + err.message + '</p>';
+      });
+    }
+    function openDiagramsModal(which) {
+      document.getElementById('diagrams-menu').hidden = true;
+      document.getElementById('diagrams-overlay').hidden = false;
+      document.body.style.overflow = 'hidden';
+      showDiagram(which || 'workflow');
+      if (window.mermaid) {
+        renderDiagram(which || 'workflow');
+        return;
+      }
+      if (mermaidLoading) return;
+      mermaidLoading = true;
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+      script.onload = function () { renderDiagram(which || 'workflow'); };
+      document.head.appendChild(script);
+    }
+    function closeDiagramsModal() {
+      document.getElementById('diagrams-overlay').hidden = true;
+      document.body.style.overflow = '';
+    }
+    function showDiagram(name) {
+      document.querySelectorAll('.diagram-pane').forEach(function (p) { p.classList.remove('active'); });
+      document.getElementById('diagram-' + name).classList.add('active');
+      document.querySelectorAll('.modal-tab').forEach(function (t) {
+        t.classList.toggle('active', t.getAttribute('data-diagram') === name);
+      });
+      renderDiagram(name);
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDiagramsModal();
+    });
+  </script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

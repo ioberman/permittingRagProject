@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Jurisdictions - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<div class="eyebrow">Jurisdictions</div>
+<h1 class="serif">Reference code documentation</h1>
+<p class="lede">Only jurisdictions listed here (with at least one document loaded) are selectable when creating a project.</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form method="post" action="/jurisdictions/documents" enctype="multipart/form-data">
+  <fieldset>
+    <label>Jurisdiction name
+      <input name="jurisdiction_name" list="jurisdiction_names" required>
+      <datalist id="jurisdiction_names">
+        {% for j in jurisdictions %}<option value="{{ j.name }}">{% endfor %}
+      </datalist>
+    </label>
+    <label>Document title
+      <input name="title" required>
+    </label>
+    <label>File (code book, amendment, etc.)
+      <input type="file" name="file" required>
+    </label>
+    <button type="submit">Add reference document</button>
+  </fieldset>
+</form>
+
+<h2>Loaded jurisdictions</h2>
+<div class="card-table">
+<table>
+  <tr><th>Jurisdiction</th><th>Document</th><th>Type</th><th>Clauses</th><th>Ingested</th></tr>
+  {% for row in rows %}
+  <tr>
+    <td>{{ row.jurisdiction_name }}</td>
+    <td>{{ row.title }}</td>
+    <td>{{ row.doc_type }}</td>
+    <td>
+      {% if row.clause_count %}<a href="/jurisdictions/documents/{{ row.id }}/clauses">{{ row.clause_count }}</a>{% else %}0{% endif %}
+    </td>
+    <td>{{ row.ingested_at }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Reasoning - {{ flag.clause.clause_label }} - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<a class="crumb" href="/submissions/{{ flag.submission_id }}/flags">&larr; back to flags</a>
+<div class="eyebrow">Audit trail</div>
+<h1 class="serif">Reasoning trace</h1>
+
+<div class="meta">
+  <div>Clause: <span class="label">{{ flag.clause.clause_label }}</span></div>
+  <div>Severity: <span class="sev-{{ flag.severity.value }}">{{ flag.severity.value }}</span></div>
+  <div>Engine: {{ llm_call.engine }} / {{ llm_call.model }}</div>
+  <div>Tokens: {{ llm_call.input_tokens if llm_call.input_tokens is not none else '-' }} in
+       / {{ llm_call.output_tokens if llm_call.output_tokens is not none else '-' }} out</div>
+  <div>Latency: {{ llm_call.latency_ms }} ms</div>
+  <div>Called: {{ llm_call.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+</div>
+
+<h2>Flag explanation</h2>
+<pre>{{ flag.explanation }}</pre>
+
+<h2>Prompt sent to model</h2>
+<pre>{{ llm_call.prompt }}</pre>
+
+<h2>Raw model response</h2>
+<pre>{{ llm_call.raw_response }}</pre>
+
+{% endblock %}
