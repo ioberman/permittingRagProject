@@ -787,12 +787,15 @@ def jurisdiction_document_clauses(document_id):
     if document is None:
         return redirect("/jurisdictions?error=Document not found")
 
-    clauses = (
-        session.query(JurisdictionClause)
-        .filter_by(jurisdiction_document_id=document_id)
-        .order_by(JurisdictionClause.clause_label)
-        .all()
-    )
+    total_count = session.query(JurisdictionClause).filter_by(jurisdiction_document_id=document_id).count()
+    query = session.query(JurisdictionClause).filter_by(jurisdiction_document_id=document_id)
+    q = request.args.get("q", "").strip()
+    if q:
+        query = query.filter(
+            (JurisdictionClause.text.ilike(f"%{q}%")) | (JurisdictionClause.clause_label.ilike(f"%{q}%"))
+        )
+    clauses = query.order_by(JurisdictionClause.clause_label).all()
+
     return render_template(
         "clauses.html",
         back_href="/jurisdictions",
@@ -803,6 +806,8 @@ def jurisdiction_document_clauses(document_id):
         discipline="-",
         doc_type=document.doc_type.value,
         clauses=clauses,
+        total_count=total_count,
+        q=q,
     )
 
 
@@ -813,13 +818,18 @@ def document_clauses(document_id):
     if document is None:
         return redirect("/?error=Document not found")
 
-    clauses = (
+    base_query = (
         session.query(Clause)
         .join(DocumentClause, DocumentClause.clause_id == Clause.id)
         .filter(DocumentClause.document_id == document_id)
-        .order_by(Clause.clause_label)
-        .all()
     )
+    total_count = base_query.count()
+    query = base_query
+    q = request.args.get("q", "").strip()
+    if q:
+        query = query.filter((Clause.text.ilike(f"%{q}%")) | (Clause.clause_label.ilike(f"%{q}%")))
+    clauses = query.order_by(Clause.clause_label).all()
+
     return render_template(
         "clauses.html",
         back_href=f"/projects/{document.series.project_id}",
@@ -830,6 +840,8 @@ def document_clauses(document_id):
         discipline=document.series.discipline.value,
         doc_type=document.doc_type.value,
         clauses=clauses,
+        total_count=total_count,
+        q=q,
     )
 
 

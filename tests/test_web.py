@@ -13,6 +13,7 @@ so this suite (and the CI that runs it) works with zero secrets configured.
 
 import io
 import os
+import re
 import tempfile
 
 _tmp_dir = tempfile.mkdtemp(prefix="plan_review_web_test_")
@@ -126,6 +127,26 @@ def test_ingest_two_disciplines(client, project_id):
     assert detail.status_code == 200
     assert b"A-101" in detail.data
     assert b"M-101" in detail.data
+
+
+def test_document_clauses_search(client, project_id):
+    detail = client.get(f"/projects/{project_id}")
+    match = re.search(rb"/documents/([\w-]+)/clauses", detail.data)
+    assert match, "expected an ingested sheet's clause link on the project page"
+    document_id = match.group(1).decode()
+
+    unfiltered = client.get(f"/documents/{document_id}/clauses")
+    assert unfiltered.status_code == 200
+    assert b"4.1" in unfiltered.data and b"4.2" in unfiltered.data
+
+    hit = client.get(f"/documents/{document_id}/clauses?q=fire-rated")
+    assert hit.status_code == 200
+    assert b"4.2" in hit.data
+    assert b"4.1" not in hit.data  # "corridor width" clause has no match for "fire-rated"
+
+    miss = client.get(f"/documents/{document_id}/clauses?q=zzz_no_such_term")
+    assert miss.status_code == 200
+    assert b"No clauses match" in miss.data
 
 
 def test_check_mock_engine_runs_without_error(client, project_id):

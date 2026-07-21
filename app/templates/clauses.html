@@ -7,6 +7,16 @@
 <h1 class="serif">{{ sheet_number }} &mdash; {{ title }}</h1>
 <p class="meta">{{ project }} / {{ revision }} / {{ discipline }} / {{ doc_type }}</p>
 
+<form method="get" class="clause-search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search label or text&hellip;" aria-label="Search clauses">
+  <button type="submit" class="btn sm">Search</button>
+  {% if q %}<a href="?" class="action-link">Clear</a>{% endif %}
+</form>
+<p class="meta">
+  {% if q %}{{ clauses|length }} of {{ total_count }} clause(s) matching &ldquo;{{ q }}&rdquo;
+  {% else %}{{ total_count }} clause(s){% endif %}
+</p>
+
 <div class="card-table">
 <table class="clauses-table">
   <colgroup>
@@ -23,6 +33,8 @@
     <td>{{ c.location.get('page', '-') }}</td>
     <td>{{ c.extraction_method.value }}</td>
   </tr>
+  {% else %}
+  <tr><td colspan="4" class="meta">No clauses match &ldquo;{{ q }}&rdquo;.</td></tr>
   {% endfor %}
 </table>
 </div>

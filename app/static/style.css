@@ -226,6 +226,10 @@ h2 {
 .clauses-table td, .clauses-table th, .audit-table td, .audit-table th,
 .projects-table td, .projects-table th, .sheets-table td, .sheets-table th { overflow-wrap: break-word; }
 
+.clause-search { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
+.clause-search input[type="search"] { width: 22rem; max-width: 60vw; margin-top: 0; }
+.clause-search .btn.sm { flex-shrink: 0; }
+
 .filter-tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
 .filter-tab {
   font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); text-decoration: none;
