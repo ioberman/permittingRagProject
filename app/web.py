@@ -20,6 +20,7 @@ the Flask process, hit the database, or call an LLM API.
 
 import csv
 import io
+import os
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
@@ -76,6 +77,25 @@ app = Flask(__name__)
 # it to not chase a "bug" that's actually just a stale server.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
+
+if os.environ.get("AUTO_SEED_ON_START"):
+    # Opt-in only (unset locally, so normal dev DB state is never touched) -
+    # exists for hosts like Render's free tier with no Shell access to run
+    # the seed scripts by hand after a deploy. Runs in-process on the
+    # deployed server itself, not from a developer's machine, so uploaded
+    # seed files land on the actual STORAGE_ROOT the app will later read
+    # them from - running the scripts locally against a remote DATABASE_URL
+    # instead would write those files to the wrong filesystem entirely.
+    # Every seed script is idempotent (checks what's already ingested), so
+    # this is safe to leave on across every subsequent deploy/restart too.
+    from scripts import seed_demo_data, seed_jurisdictions, seed_large_demo
+
+    try:
+        seed_jurisdictions.main()
+        seed_demo_data.main()
+        seed_large_demo.main()
+    except Exception as e:
+        print(f"AUTO_SEED_ON_START failed (app will still start): {e}")
 
 
 def get_session():

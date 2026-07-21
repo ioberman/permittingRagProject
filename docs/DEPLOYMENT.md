@@ -97,9 +97,12 @@ next deploy.
 
 First deploy will build and start the service; it'll come up with an empty
 database (`init_db()` creates the schema automatically on startup, same as
-locally). To get jurisdiction code data and the demo projects loaded, use
-Render's **Shell** tab on the web service (or `render ssh` via the CLI) to
-run the same seed scripts you use locally:
+locally). Two ways to load jurisdiction code data and the demo projects,
+depending on whether your plan has Shell access:
+
+**With Shell access** (paid plans): open the **Shell** tab on the web
+service (or `render ssh` via the CLI) and run the same seed scripts you use
+locally:
 
 ```
 python scripts/seed_jurisdictions.py
@@ -107,8 +110,18 @@ python scripts/seed_demo_data.py
 python scripts/seed_large_demo.py   # optional - a bigger 12-sheet, 8-discipline demo project
 ```
 
-These read from `seed_data/` in the repo, so they work identically on
-Render as they do locally - no manual re-upload needed.
+**Without Shell access** (free tier): set the environment variable
+`AUTO_SEED_ON_START=1` on the web service (Environment tab, which free-tier
+services do have). The app runs the same three idempotent seed scripts
+in-process on every boot when this is set - safe to leave on across every
+future deploy/restart, since each script skips anything already ingested.
+Don't run the seed scripts from your own machine against the remote
+`DATABASE_URL` instead - that writes the seeded files to your local
+`STORAGE_ROOT`, not Render's, so the app would have database rows pointing
+at files that don't exist on the actual deployed filesystem.
+
+Either way, these read from `seed_data/` in the repo, so they work
+identically on Render as they do locally - no manual re-upload needed.
 
 ## 7. Verify
 
