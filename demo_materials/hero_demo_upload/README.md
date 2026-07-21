@@ -3,8 +3,9 @@
 Three letterhead-style PDF sheets for a fictional project ("Lakeshore
 Professional Center - Tenant Improvement") - realistic enough to hand
 someone to upload themselves through the real ingest flow, not seeded
-directly into the database. Verified end-to-end (real PDF extraction, real
-Groq reasoning) to produce **both** flag types this app detects.
+directly into the database. Designed to produce **both** flag types this
+app detects - see verification status below before treating that as
+settled.
 
 ## What's in here
 
@@ -47,9 +48,24 @@ showed a narrower margin got flagged as a false positive by the real model.
 5. Both should show up on the project's Flags page, each citing the specific
    clause pair responsible.
 
-Verified live against Groq (`llama-3.3-70b-versatile`) on 2026-07-20: 1
-jurisdiction flag (the ceiling-height violation) and cross-discipline flags
-on the Corridor 210 pair, with no flag on the Corridor 214 control pair.
-LLM output isn't deterministic - if a re-run ever produces a different
-severity or exact wording, that's expected; what should stay consistent is
-*that* both checks produce at least one real flag.
+## Verification status
+
+- **Extraction**: confirmed. All three PDFs extract cleanly through the
+  real pipeline with no title-block noise - each clause comes through
+  intact, verified directly against `app/clause_extraction.py`, not assumed
+  from the visual layout alone.
+- **Flag behavior**: confirmed live against Groq (`llama-3.3-70b-versatile`)
+  on an earlier version of these notes, with the Corridor 214 control pair
+  at a narrower margin (10'-6" beam / 10'-0" duct) - that version correctly
+  flagged the jurisdiction violation and the Corridor 210 clash, but the
+  real model *also* flagged the Corridor 214 control pair as a false
+  positive. The margin was widened to 14'-0" / 8'-6" to fix that
+  ambiguity, but a full live re-run against the corrected numbers hasn't
+  completed yet (Groq's free-tier daily token limit was hit twice in a row
+  during testing). The jurisdiction flag and the Corridor 210 cross-discipline
+  flag should be unaffected by this change; the Corridor 214 pair not
+  flagging is the one thing not yet re-confirmed live - update this note
+  once it has been.
+- LLM output isn't deterministic either way - if a re-run ever produces a
+  different severity or exact wording, that's expected; what should stay
+  consistent is *that* both checks produce at least one real flag.
