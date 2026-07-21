@@ -34,8 +34,13 @@ SQLite+Disk path, skip step 2 and set `DATABASE_URL` to
 disk mount from step 5) instead.
 
 **2. Instance size.** `sentence-transformers` pulls in `torch`, which needs
-more than Render's free-tier 512MB RAM to reliably load the embedding model
-alongside Flask, PyMuPDF, etc. Use at least the **Starter** plan.
+more RAM than a 512MB instance to reliably load the embedding model
+alongside Flask, PyMuPDF, etc. - confirmed in practice: a deploy on a 512MB
+plan was OOM-killed before it could even bind a port. Use the build command
+below (forces the CPU-only torch build, meaningfully smaller than the
+default GPU one) regardless of plan, and pick a plan with more than 512MB -
+check Render's current plan/pricing page for exact RAM per tier rather than
+trusting a tier name here, since those change.
 
 ## 1. Push to GitHub
 
@@ -62,9 +67,9 @@ service's `DATABASE_URL` in step 4.
 **New > Web Service**, connect the GitHub repo.
 
 - **Runtime**: Python 3
-- **Build command**: `pip install -r requirements.txt`
+- **Build command**: `pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt`
 - **Start command**: `gunicorn app.web:app`
-- **Plan**: Starter or higher (see sizing note above)
+- **Plan**: more than 512MB RAM (see sizing note above)
 
 ## 4. Set environment variables
 
