@@ -277,16 +277,37 @@ def _get_or_create_jurisdiction_clause(
     return clause
 
 
-def extract_and_store_jurisdiction_clauses(session: Session, document: JurisdictionDocument) -> int:
+def extract_and_store_jurisdiction_clauses(
+    session: Session,
+    document: JurisdictionDocument,
+    precomputed_clauses: list[tuple[str, str, int]] | None = None,
+) -> int:
     """Same extraction logic as extract_and_store_clauses, storing into
-    JurisdictionClause instead of Clause/DocumentClause."""
+    JurisdictionClause instead of Clause/DocumentClause.
+
+    precomputed_clauses (label, text, page_number) skips extract_pages() and
+    split_into_clauses() entirely when given - for scripts/seed_jurisdictions.py,
+    whose PDFs are static, checked-in files where re-running find_tables()
+    (94% of extraction time - 38s alone on Chicago's 231-page code, measured
+    directly) on every fresh deploy's boot is pure waste. Nothing about
+    real/uploaded jurisdiction documents uses this - those still always
+    extract live, since their content isn't known ahead of time."""
     if document.doc_type not in (DocType.PDF_2D, DocType.SPEC):
         return 0
+
+    method = ExtractionMethod.PDF_TEXT if document.doc_type == DocType.PDF_2D else ExtractionMethod.SPEC_TEXT
+
+    if precomputed_clauses is not None:
+        count = 0
+        for label, body, page_number in precomputed_clauses:
+            _get_or_create_jurisdiction_clause(session, document, label, body, page_number, method)
+            count += 1
+        session.flush()
+        return count
 
     content = storage.load(document.file_uri)
     filename = (document.metadata_ or {}).get("original_filename") or document.file_uri.rsplit("/", 1)[-1]
     pages = extract_pages(content, document.doc_type, filename)
-    method = ExtractionMethod.PDF_TEXT if document.doc_type == DocType.PDF_2D else ExtractionMethod.SPEC_TEXT
 
     count = 0
     for page_number, page_text in enumerate(pages, start=1):

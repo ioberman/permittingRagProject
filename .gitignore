@@ -7,3 +7,4 @@ __pycache__/
 *.db.bak*
 .venv/
 storage/
+.DS_Store
