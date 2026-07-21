@@ -33,14 +33,14 @@ SQLite+Disk path, skip step 2 and set `DATABASE_URL` to
 `sqlite:////var/data/permitting.db` (four slashes - absolute path into the
 disk mount from step 5) instead.
 
-**2. Instance size.** `sentence-transformers` pulls in `torch`, which needs
-more RAM than a 512MB instance to reliably load the embedding model
-alongside Flask, PyMuPDF, etc. - confirmed in practice: a deploy on a 512MB
-plan was OOM-killed before it could even bind a port. Use the build command
-below (forces the CPU-only torch build, meaningfully smaller than the
-default GPU one) regardless of plan, and pick a plan with more than 512MB -
-check Render's current plan/pricing page for exact RAM per tier rather than
-trusting a tier name here, since those change.
+**2. Instance size.** Retrieval (`app/retrieval.py`) runs on `fastembed`
+(ONNX Runtime), not `sentence-transformers`/PyTorch - switched after a real
+512MB deploy was OOM-killed before it could even bind a port, running the
+torch-based version, even with the CPU-only wheel (torch alone is 500MB+
+installed). fastembed's full dependency tree is under 200MB with no torch at
+all, so a smaller instance should now be viable - not yet confirmed on
+Render itself as of this writing, so still worth watching the deploy log the
+first time rather than assuming it fits.
 
 ## 1. Push to GitHub
 
@@ -67,9 +67,9 @@ service's `DATABASE_URL` in step 4.
 **New > Web Service**, connect the GitHub repo.
 
 - **Runtime**: Python 3
-- **Build command**: `pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt`
+- **Build command**: `pip install -r requirements.txt`
 - **Start command**: `gunicorn app.web:app`
-- **Plan**: more than 512MB RAM (see sizing note above)
+- **Plan**: try the smallest tier first and check the deploy log (see sizing note above)
 
 ## 4. Set environment variables
 

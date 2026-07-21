@@ -67,9 +67,11 @@ yourself.
   can only reference clause_ids it was actually shown — it can't invent a citation
   to something not in its context window.
 - **Retrieval and generation are separate steps.** A cheap/fast method (a local
-  sentence-embedding model, `all-MiniLM-L6-v2`, cosine similarity — no API key,
-  see `app/retrieval.py`) narrows candidate pairs, both jurisdiction and
-  cross-discipline, before the LLM reasons over them — this keeps the LLM from
+  sentence-embedding model, `all-MiniLM-L6-v2` run via `fastembed`/ONNX
+  Runtime rather than `sentence-transformers`/PyTorch — same weights, same
+  output, a fraction of the deploy footprint, see `app/retrieval.py`) narrows
+  candidate pairs, both jurisdiction and cross-discipline, before the LLM
+  reasons over them — this keeps the LLM from
   having to compare every clause against every other clause (O(n²), doesn't
   scale, wastes tokens).
 - **Real vs. simulated must always be labeled clearly**, both in code comments and

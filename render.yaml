@@ -16,15 +16,12 @@ services:
   - type: web
     name: plan-review-copilot
     runtime: python
-    plan: starter # sentence-transformers pulls in torch - free tier's 512MB RAM is too tight
-    # torch (a transitive dep of sentence-transformers) has no CPU-only pin
-    # in requirements.txt, so a plain `pip install` grabs its default CUDA/GPU
-    # build - over 1GB of nvidia-* packages that do nothing on Render's
-    # CPU-only web services and meaningfully worsen build time and memory
-    # footprint. Installing the CPU-only wheel first satisfies the
-    # requirement before sentence-transformers' own resolution can pull the
-    # GPU one in.
-    buildCommand: pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt
+    plan: starter # retrieval runs on fastembed (ONNX Runtime), not sentence-transformers/torch -
+    # confirmed via a live 512MB deploy that the torch-based version genuinely didn't fit even
+    # with the GPU packages stripped out (see docs/DEPLOYMENT.md); fastembed's full dependency
+    # tree is under 200MB installed, no torch at all, so this may now run on a smaller plan than
+    # "starter" - not yet confirmed on Render itself, downsize and test if that matters to you.
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app.web:app
     envVars:
       - key: DATABASE_URL
