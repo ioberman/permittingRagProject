@@ -129,6 +129,20 @@ def test_ingest_two_disciplines(client, project_id):
     assert b"M-101" in detail.data
 
 
+def test_ingest_duplicate_sheet_number_in_same_revision_is_a_friendly_error(client, project_id):
+    # Document has a (document_series_id, submission_id) unique constraint -
+    # one version of a sheet per revision, by design. Uploading the same
+    # sheet number twice into the same revision used to crash with a raw
+    # IntegrityError/500 instead of telling the user what to do about it.
+    resp = _ingest(client, project_id, "A-101", "architectural", "Corridor Plan (again)", SPEC_TEXT)
+    assert resp.status_code == 302
+    assert "error=" in resp.headers["Location"]
+
+    follow = client.get(resp.headers["Location"])
+    assert follow.status_code == 200
+    assert b"already exists" in follow.data
+
+
 def test_document_clauses_search(client, project_id):
     detail = client.get(f"/projects/{project_id}")
     match = re.search(rb"/documents/([\w-]+)/clauses", detail.data)

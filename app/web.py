@@ -416,10 +416,32 @@ def ingest(project_id):
         return redirect(f"/projects/{project_id}?{urlencode({'error': str(e)})}")
 
     submission = get_latest_or_create_submission(session, project.id)
+    sheet_number = request.form["sheet_number"]
+
+    # Document has a (document_series_id, submission_id) unique constraint -
+    # one version of a sheet per revision, by design (see app/models.py) -
+    # so uploading a sheet number that's already in the current revision
+    # would otherwise crash with a raw IntegrityError/500 instead of telling
+    # the user what to do about it (start a new revision, or use
+    # /documents/<id>/revise, which does exactly that pre-filled).
+    existing_series = find_series(session, project.id, sheet_number)
+    if existing_series is not None:
+        already_in_revision = (
+            session.query(Document)
+            .filter_by(document_series_id=existing_series.id, submission_id=submission.id)
+            .first()
+        )
+        if already_in_revision is not None:
+            message = (
+                f"Sheet {sheet_number} already exists in {submission.revision_label}. "
+                f"Start a new revision to upload an updated version, or use a different sheet number."
+            )
+            return redirect(f"/projects/{project_id}?{urlencode({'error': message})}")
+
     document = ingest_document(
         session,
         submission,
-        sheet_number=request.form["sheet_number"],
+        sheet_number=sheet_number,
         discipline=Discipline(request.form["discipline"]),
         title=request.form["title"],
         doc_type=doc_type,
