@@ -21,10 +21,24 @@ the Flask process, hit the database, or call an LLM API.
 import csv
 import io
 import os
+import sys
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 from flask import Flask, g, jsonify, redirect, render_template, request, Response
+
+# stdout is block-buffered, not line-buffered, once it's piped/redirected
+# rather than an interactive terminal - exactly gunicorn's case on Render.
+# Confirmed directly: a background thread's print() calls didn't show up in
+# a redirected log file even 8 seconds later, while gunicorn's own
+# logging-module output flushed immediately. Reconfiguring here (rather than
+# adding flush=True to every print call, in this file or any script it
+# imports) fixes visibility for all of them at once, including the seed
+# scripts' own per-file progress lines.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except AttributeError:
+    pass  # Python <3.7 fallback; not a real concern for this project's target versions
 
 from app.check_persistence import (
     current_documents_for_project,
@@ -104,12 +118,24 @@ if os.environ.get("AUTO_SEED_ON_START"):
     def _seed_in_background():
         from scripts import seed_demo_data, seed_jurisdictions, seed_large_demo
 
+        # print() alone isn't enough here - stdout is block-buffered (not
+        # line-buffered) once it's piped/redirected rather than an
+        # interactive terminal, which is exactly gunicorn's case. Confirmed
+        # directly: a background thread's print() calls didn't show up in a
+        # redirected log file even 8 seconds later, while gunicorn's own
+        # logging-module output flushed immediately - so without an explicit
+        # flush, this thread's progress (or a silent failure) would be
+        # invisible in Render's log stream for an unpredictable amount of
+        # time, which is exactly the blind spot that made this hard to
+        # debug the first time.
+        print("AUTO_SEED_ON_START: seeding started", flush=True)
         try:
             seed_jurisdictions.main()
             seed_demo_data.main()
             seed_large_demo.main()
+            print("AUTO_SEED_ON_START: seeding finished", flush=True)
         except Exception as e:
-            print(f"AUTO_SEED_ON_START failed: {e}")
+            print(f"AUTO_SEED_ON_START failed: {e}", flush=True)
 
     threading.Thread(target=_seed_in_background, daemon=True).start()
 
