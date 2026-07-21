@@ -22,7 +22,14 @@ services:
     # tree is under 200MB installed, no torch at all, so this may now run on a smaller plan than
     # "starter" - not yet confirmed on Render itself, downsize and test if that matters to you.
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app.web:app
+    # --timeout 120: gunicorn's default (30s) killed a real request on Render's
+    # free-tier CPU - the document network graph's first hit of fastembed
+    # (model load + embedding) landed while AUTO_SEED_ON_START's background
+    # thread was still churning through Chicago's 3800+ clauses, competing for
+    # the same single core/GIL. The client saw a truncated response
+    # ("Unexpected end of JSON input"), not a real error - the request was
+    # still working, just killed mid-flight before it could finish.
+    startCommand: gunicorn app.web:app --timeout 120
     envVars:
       - key: DATABASE_URL
         fromDatabase:

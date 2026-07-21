@@ -22,6 +22,7 @@ import csv
 import io
 import os
 import sys
+import threading
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
@@ -92,6 +93,28 @@ app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
 
+
+def _warm_embedding_model():
+    # The embedding model (fastembed) is loaded lazily on first use -
+    # nothing during ingest/seeding touches it, only a check or the document
+    # network graph does. Without this, whichever user request happens to be
+    # first pays that load cost inline, competing for CPU with
+    # AUTO_SEED_ON_START's background thread if one's still running - the
+    # direct cause of a real "Unexpected end of JSON input" (a request
+    # truncated by gunicorn's timeout, not a real server error) on Render's
+    # free tier. Warming it here, off the request path, means a real user's
+    # first request is never the one paying for it.
+    from app.retrieval import _get_model
+
+    try:
+        _get_model()
+        print("Embedding model warmed", flush=True)
+    except Exception as e:
+        print(f"Embedding model warm-up failed (will load lazily instead): {e}", flush=True)
+
+
+threading.Thread(target=_warm_embedding_model, daemon=True).start()
+
 if os.environ.get("AUTO_SEED_ON_START"):
     # Opt-in only (unset locally, so normal dev DB state is never touched) -
     # exists for hosts like Render's free tier with no Shell access to run
@@ -113,7 +136,6 @@ if os.environ.get("AUTO_SEED_ON_START"):
     # inline here. The projects list will just look empty for the minute or
     # two seeding actually takes after a fresh deploy now, instead of the
     # whole app failing to come up at all.
-    import threading
 
     def _seed_in_background():
         from scripts import seed_demo_data, seed_jurisdictions, seed_large_demo

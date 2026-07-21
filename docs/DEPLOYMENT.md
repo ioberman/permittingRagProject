@@ -68,8 +68,16 @@ service's `DATABASE_URL` in step 4.
 
 - **Runtime**: Python 3
 - **Build command**: `pip install -r requirements.txt`
-- **Start command**: `gunicorn app.web:app`
+- **Start command**: `gunicorn app.web:app --timeout 120`
 - **Plan**: try the smallest tier first and check the deploy log (see sizing note above)
+
+The `--timeout 120` matters more than it looks: gunicorn's 30s default has
+been observed killing a real request mid-flight on Render's free-tier CPU -
+the document network graph's first hit of the embedding model (fastembed)
+landing while `AUTO_SEED_ON_START`'s background thread was still working
+through Chicago's 3800+ clauses, both competing for the same single core.
+The client sees a truncated response (e.g. "Unexpected end of JSON input"),
+not a real error - the request was still in progress, just cut off.
 
 ## 4. Set environment variables
 
