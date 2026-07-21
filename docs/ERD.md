@@ -115,6 +115,9 @@ erDiagram
         string model
         bool is_simulated
         datetime created_at
+        string status "open | acknowledged | resolved | false_positive"
+        string status_note "nullable"
+        datetime status_updated_at "nullable"
     }
 
     FLAG_CITATION {
@@ -195,3 +198,10 @@ erDiagram
   `JURISDICTION_CLAUSE` rows, cross-discipline checks cite another project
   `CLAUSE` (both built — see `app/conflict_detection.py` and
   `app/cross_discipline_detection.py`).
+- **`FLAG.status`** is a reviewer's disposition (open/acknowledged/resolved/
+  false_positive), independent of `severity` (the model's own confidence
+  label). Defaults to `open` on every flag; a reviewer sets it via the flags
+  page, which also rolls it up into the reviewer-confirmed precision figure
+  on `/metrics`. This is the "pilot alongside human review" hook — it lets a
+  reviewer record what the tool got right or wrong without a separate system
+  comparing against an independent review pass.

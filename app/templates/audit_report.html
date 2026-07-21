@@ -29,7 +29,17 @@
   <div class="summary-card"><div class="n">{{ sheet_count }}</div><div class="l">Sheets covered</div></div>
 </div>
 
-<table>
+<table class="audit-table">
+  <colgroup>
+    <col style="width: 9%">
+    <col style="width: 8%">
+    <col style="width: 12%">
+    <col style="width: 32%">
+    <col style="width: 11%">
+    <col style="width: 11%">
+    <col style="width: 8%">
+    <col style="width: 9%">
+  </colgroup>
   <tr><th>Type</th><th>Severity</th><th>Sheet / Clause</th><th>Finding</th><th>Cited</th><th>Model</th><th>Revision</th><th>Timestamp</th></tr>
   {% for f in flags %}
   <tr>

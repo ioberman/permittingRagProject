@@ -8,7 +8,13 @@
 <p class="meta">{{ project }} / {{ revision }} / {{ discipline }} / {{ doc_type }}</p>
 
 <div class="card-table">
-<table>
+<table class="clauses-table">
+  <colgroup>
+    <col style="width: 12%">
+    <col style="width: 58%">
+    <col style="width: 10%">
+    <col style="width: 20%">
+  </colgroup>
   <tr><th>Label</th><th>Text</th><th>Page</th><th>Extraction method</th></tr>
   {% for c in clauses %}
   <tr>

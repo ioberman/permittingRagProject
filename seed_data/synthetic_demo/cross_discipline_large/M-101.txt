@@ -1,0 +1,3 @@
+1.1 CRAC unit CU-6 in Data Hall 1 requires 8 feet 6 inches of overhead clearance to accommodate top-discharge airflow.
+1.2 CRAC unit CU-9 in Data Hall 4 requires 7 feet 0 inches of overhead clearance to accommodate top-discharge airflow.
+2.1 Condenser water piping serving CU-6 is routed at 7 feet 0 inches above finished floor along the Data Hall 1 perimeter wall.

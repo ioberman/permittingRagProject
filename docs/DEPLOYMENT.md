@@ -99,6 +99,7 @@ run the same seed scripts you use locally:
 ```
 python scripts/seed_jurisdictions.py
 python scripts/seed_demo_data.py
+python scripts/seed_large_demo.py   # optional - a bigger 12-sheet, 8-discipline demo project
 ```
 
 These read from `seed_data/` in the repo, so they work identically on
@@ -111,7 +112,9 @@ Confirm:
 - The projects list loads (`/`)
 - A demo project's page loads and shows its sheets
 - The Diagrams dropdown opens and both diagrams render
+- The "Document network" button on a project page opens and renders a graph
 - `/projects/<id>/audit-report` renders (exercises the DB read path end to end)
+- `/metrics` loads
 
 ## Optional: one-click blueprint
 

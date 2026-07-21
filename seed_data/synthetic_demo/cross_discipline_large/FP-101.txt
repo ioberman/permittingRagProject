@@ -1,0 +1,3 @@
+1.1 Sprinkler branch line SP-6 crosses Data Hall 2 at 14 feet 3 inches above finished floor, below the required duct insulation clearance.
+1.2 Sprinkler branch line SP-9 crosses Data Hall 3 at 12 feet 6 inches above finished floor.
+2.1 Standpipe riser in the north stair is sized for a minimum residual pressure of 65 psi at the topmost outlet.

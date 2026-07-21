@@ -80,6 +80,20 @@ class FlagSeverity(enum.Enum):
     HIGH = "high"
 
 
+class FlagStatus(enum.Enum):
+    """A reviewer's disposition of a flag - independent of severity, which is
+    the model's own confidence label. Defaults to OPEN so every existing flag
+    (and every newly-detected one) starts unreviewed. This is the minimal
+    version of "pilot alongside human review": it lets a reviewer record
+    whether the tool got it right without building a separate system to
+    compare against an independent human review pass."""
+
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+    FALSE_POSITIVE = "false_positive"
+
+
 class CheckType(enum.Enum):
     """Which candidate pool a Flag/LLMCall came from - jurisdiction code clauses
     or other project clauses. Needed because both checks write Flag/LLMCall
@@ -320,6 +334,9 @@ class Flag(Base):
     model: Mapped[str]  # e.g. "mock-keyword-heuristic" or "claude-sonnet-5"
     is_simulated: Mapped[bool]
     created_at: Mapped[datetime] = mapped_column(default=_now)
+    status: Mapped[FlagStatus] = mapped_column(SAEnum(FlagStatus, native_enum=False), default=FlagStatus.OPEN)
+    status_note: Mapped[str | None] = mapped_column(nullable=True)
+    status_updated_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     submission: Mapped["Submission"] = relationship()
     clause: Mapped["Clause"] = relationship()

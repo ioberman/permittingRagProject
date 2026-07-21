@@ -4,8 +4,16 @@
 
 <a class="crumb" href="/">&larr; all projects</a>
 <div class="page-header">
-  <div class="eyebrow">Project</div>
-  <h1 class="serif">{{ project.name }}</h1>
+  <div class="page-title-row">
+    <div>
+      <div class="eyebrow">Project</div>
+      <h1 class="serif">{{ project.name }}</h1>
+    </div>
+    <button type="button" class="btn sm" onclick="openGraphModal()">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 0.3rem;"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.2 7.4 10 16.2M15.8 7.4 14 16.2M8.6 6h6.8"/></svg>
+      Document network
+    </button>
+  </div>
   <div class="meta-line">
     <span>Jurisdiction: {{ project.jurisdiction.name }}</span>
     <span>&middot;</span>
@@ -46,8 +54,8 @@
     </div>
     <div class="check-controls">
       <label class="field-label">Engine
-        <select name="engine" class="engine-select">
-          <option value="preview" title="Shows the semantic-similarity matches without judging conflict vs. no conflict - no API key needed">preview (no LLM)</option>
+        <select name="engine" class="engine-select" onchange="document.getElementById('cross-check-submit').textContent = this.value === 'preview' ? 'Preview candidates (not saved)' : 'Run check'">
+          <option value="preview" title="Shows the semantic-similarity matches without judging conflict vs. no conflict - no API key needed, but nothing is saved as a flag">preview (no LLM)</option>
           <option value="groq">groq (free tier)</option>
           <option value="real">real (Claude, paid)</option>
         </select>
@@ -55,7 +63,7 @@
       <label class="inline-check" title="Re-check every current clause from scratch, instead of only the ones never checked before">
         <input type="checkbox" name="force" value="1"> Full re-check
       </label>
-      <button type="submit" class="btn sm">Run check</button>
+      <button type="submit" class="btn sm" id="cross-check-submit">Preview candidates (not saved)</button>
     </div>
   </form>
   <div class="check-row footer-row">
@@ -71,12 +79,23 @@
 </div>
 {% if sheet_rows %}
 <div class="card-table">
-<table>
+<table class="sheets-table">
+  <colgroup>
+    <col style="width: 8%">
+    <col style="width: 13%">
+    <col style="width: 18%">
+    <col style="width: 6%">
+    <col style="width: 14%">
+    <col style="width: 8%">
+    <col style="width: 13%">
+    <col style="width: 11%">
+    <col style="width: 9%">
+  </colgroup>
   <tr><th>Sheet</th><th>Discipline</th><th>Title</th><th>Type</th><th>File</th><th>Clauses</th><th>Submitted by</th><th>Ingested</th><th></th></tr>
   {% for row in sheet_rows %}
   <tr>
     <td class="label">{{ row.sheet }}</td>
-    <td><span class="discipline-pill">{{ row.discipline }}</span></td>
+    <td><span class="discipline-pill">{{ row.discipline.replace('_', ' ') }}</span></td>
     <td>{{ row.title }}</td>
     <td>{{ row.doc_type }}</td>
     <td><a href="/files/{{ row.id }}">{{ row.filename }}</a></td>
@@ -147,6 +166,28 @@
 </table>
 </div>
 
+<div id="graph-overlay" class="modal-overlay" hidden onclick="if (event.target === this) closeGraphModal();">
+  <div class="modal graph-modal" role="dialog" aria-modal="true" aria-label="Document network">
+    <div class="modal-header">
+      <h2 class="serif" style="font-size: 1.1rem; font-weight: 400; margin: 0;">Document network &mdash; {{ project.name }}</h2>
+      <button type="button" class="modal-close" onclick="closeGraphModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="graph-note" id="graph-note">Loading&hellip;</p>
+      <div class="graph-canvas-wrap">
+        <svg id="graph-svg"></svg>
+        <div class="graph-controls">
+          <button type="button" class="graph-zoom-btn" onclick="graphZoom(1.25)" aria-label="Zoom in">+</button>
+          <button type="button" class="graph-zoom-btn" onclick="graphZoom(0.8)" aria-label="Zoom out">&minus;</button>
+          <button type="button" class="graph-zoom-btn" onclick="graphResetView()" aria-label="Reset view" title="Reset view">&#8634;</button>
+        </div>
+        <div id="graph-tooltip" class="graph-tooltip"></div>
+      </div>
+      <div class="graph-legend" id="graph-legend"></div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_scripts %}
@@ -171,5 +212,293 @@
     disciplineSelect.classList.add('autofilled');
   }
   document.getElementById('sheet_number').addEventListener('blur', autofillFromExistingSheet);
+</script>
+
+<script>
+  /* Document network graph - a small hand-rolled force simulation (no D3/CDN
+     dependency, consistent with mermaid being the only external viz lib this
+     app loads). Runs continuously via requestAnimationFrame rather than
+     settling once, per an explicit request for something that feels alive
+     rather than a static layout - nodes keep responding to drag and to each
+     other in real time. Edges are exhaustive (every retrieval match above
+     threshold), not capped to each sheet's top-N, so the graph never hides
+     a relationship retrieval actually found - see document_graph_data's
+     docstring for the reasoning. */
+  let graphData = null, graphNodes = [], graphEdgesEls = [], graphNodesEls = [];
+  let graphLoaded = false, graphRunning = false, graphAnimHandle = null;
+  const graphView = {x: 0, y: 0, k: 1};
+  let graphWidth = 900, graphHeight = 560;
+  let dragNode = null, panState = null;
+
+  const disciplineColor = (d) => getComputedStyle(document.documentElement).getPropertyValue('--disc-' + d).trim();
+  const severityColor = (s) => s === 'high' ? getComputedStyle(document.documentElement).getPropertyValue('--danger').trim()
+    : s === 'medium' ? getComputedStyle(document.documentElement).getPropertyValue('--warn').trim()
+    : getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+
+  async function openGraphModal() {
+    document.getElementById('graph-overlay').hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (!graphLoaded) {
+      graphLoaded = true;
+      try {
+        const res = await fetch(`/projects/${PROJECT_ID}/document-graph`);
+        graphData = await res.json();
+        initGraph();
+      } catch (e) {
+        document.getElementById('graph-note').textContent = 'Failed to load document network: ' + e.message;
+        return;
+      }
+    }
+    startGraphLoop();
+  }
+
+  function closeGraphModal() {
+    document.getElementById('graph-overlay').hidden = true;
+    document.body.style.overflow = '';
+    graphRunning = false;
+    if (graphAnimHandle) cancelAnimationFrame(graphAnimHandle);
+  }
+
+  function initGraph() {
+    const svg = document.getElementById('graph-svg');
+    const wrap = svg.parentElement;
+    graphWidth = wrap.clientWidth || 900;
+    graphHeight = wrap.clientHeight || 560;
+    svg.setAttribute('viewBox', `0 0 ${graphWidth} ${graphHeight}`);
+
+    const confirmedCount = graphData.edges.filter(e => e.severity).length;
+    document.getElementById('graph-note').textContent = confirmedCount > 0
+      ? `${graphData.edges.length} retrieval-similarity relationship(s) between sheets; ${confirmedCount} confirmed by a cross-discipline check (colored, thicker).`
+      : `${graphData.edges.length} retrieval-similarity relationship(s) between sheets. No cross-discipline check has been run yet - run one to see confirmed conflicts overlaid here.`;
+
+    graphNodes = graphData.nodes.map((n, i) => {
+      const angle = (i / graphData.nodes.length) * Math.PI * 2;
+      return {
+        ...n,
+        x: graphWidth / 2 + Math.cos(angle) * Math.min(graphWidth, graphHeight) * 0.32,
+        y: graphHeight / 2 + Math.sin(angle) * Math.min(graphWidth, graphHeight) * 0.32,
+        vx: 0, vy: 0,
+      };
+    });
+    const byId = Object.fromEntries(graphNodes.map(n => [n.id, n]));
+
+    const ns = 'http://www.w3.org/2000/svg';
+    svg.innerHTML = '';
+    const viewport = document.createElementNS(ns, 'g');
+    viewport.setAttribute('id', 'graph-viewport');
+    const edgeGroup = document.createElementNS(ns, 'g');
+    const nodeGroup = document.createElementNS(ns, 'g');
+
+    const tooltip = document.getElementById('graph-tooltip');
+
+    graphEdgesEls = graphData.edges.map(e => {
+      const a = byId[e.source], b = byId[e.target];
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('class', 'graph-edge');
+      const isFlagged = !!e.severity;
+      line.setAttribute('stroke', isFlagged ? severityColor(e.severity) : getComputedStyle(document.documentElement).getPropertyValue('--ink-faint').trim());
+      line.setAttribute('stroke-width', isFlagged ? 3.5 : Math.max(1, Math.min(6, e.count / 2)));
+      line.style.opacity = isFlagged ? 0.85 : 0.4;
+      line.addEventListener('mousemove', (ev) => {
+        const rect = svg.getBoundingClientRect();
+        let html = `<strong>${e.source} &harr; ${e.target}</strong><br>${e.count} related clause pair(s), avg similarity ${e.avg_score}`;
+        if (isFlagged) {
+          html += `<br><span class="sev-${e.severity}">${e.flag_count} confirmed ${e.severity}-severity flag(s)</span>`;
+        } else {
+          html += '<br>no confirmed conflict yet';
+        }
+        tooltip.innerHTML = html;
+        tooltip.style.left = (ev.clientX - rect.left + 14) + 'px';
+        tooltip.style.top = (ev.clientY - rect.top + 10) + 'px';
+        tooltip.classList.add('show');
+        highlightNeighborhood(e.source, e.target);
+        line.classList.add('highlight');
+      });
+      line.addEventListener('mouseleave', () => {
+        tooltip.classList.remove('show');
+        clearHighlight();
+        line.classList.remove('highlight');
+      });
+      edgeGroup.appendChild(line);
+      return {el: line, edge: e, a, b};
+    });
+
+    graphNodesEls = graphNodes.map(n => {
+      const g = document.createElementNS(ns, 'g');
+      g.setAttribute('class', 'graph-node');
+      const circle = document.createElementNS(ns, 'circle');
+      circle.setAttribute('r', 22);
+      circle.setAttribute('fill', disciplineColor(n.discipline));
+      g.appendChild(circle);
+      const label = document.createElementNS(ns, 'text');
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('y', 36);
+      label.textContent = n.id;
+      g.appendChild(label);
+      const sub = document.createElementNS(ns, 'text');
+      sub.setAttribute('class', 'sub');
+      sub.setAttribute('text-anchor', 'middle');
+      sub.setAttribute('y', 48);
+      sub.textContent = n.discipline.replace('_', ' ');
+      g.appendChild(sub);
+
+      g.addEventListener('mouseenter', () => highlightNeighborhood(n.id));
+      g.addEventListener('mouseleave', () => clearHighlight());
+      g.addEventListener('mousedown', (ev) => { dragNode = n; ev.stopPropagation(); });
+      g.addEventListener('click', (ev) => {
+        if (n._dragged) { n._dragged = false; return; }
+        window.location.href = `/documents/${n.document_id}/clauses`;
+      });
+      nodeGroup.appendChild(g);
+      return {el: g, node: n};
+    });
+
+    viewport.appendChild(edgeGroup);
+    viewport.appendChild(nodeGroup);
+    svg.appendChild(viewport);
+
+    svg.onmousedown = (ev) => {
+      if (dragNode) return;
+      panState = {startX: ev.clientX, startY: ev.clientY, origX: graphView.x, origY: graphView.y};
+      svg.classList.add('panning');
+    };
+    window.onmousemove = (ev) => {
+      const rect = svg.getBoundingClientRect();
+      const scale = graphWidth / rect.width;
+      if (dragNode) {
+        dragNode._dragged = true;
+        dragNode.x = (ev.clientX - rect.left) * scale / graphView.k - graphView.x / graphView.k;
+        dragNode.y = (ev.clientY - rect.top) * scale / graphView.k - graphView.y / graphView.k;
+        dragNode.vx = 0; dragNode.vy = 0;
+      } else if (panState) {
+        graphView.x = panState.origX + (ev.clientX - panState.startX) * scale;
+        graphView.y = panState.origY + (ev.clientY - panState.startY) * scale;
+        applyGraphTransform();
+      }
+    };
+    window.onmouseup = () => {
+      dragNode = null;
+      panState = null;
+      svg.classList.remove('panning');
+    };
+    svg.onwheel = (ev) => {
+      ev.preventDefault();
+      graphZoom(ev.deltaY < 0 ? 1.08 : 0.93, ev);
+    };
+
+    buildLegend();
+    applyGraphTransform();
+  }
+
+  function highlightNeighborhood(idA, idB) {
+    const related = new Set([idA]);
+    if (idB) related.add(idB);
+    if (!idB) {
+      graphEdgesEls.forEach(({edge}) => {
+        if (edge.source === idA) related.add(edge.target);
+        if (edge.target === idA) related.add(edge.source);
+      });
+    }
+    graphNodesEls.forEach(({el, node}) => el.classList.toggle('dim', !related.has(node.id)));
+    graphEdgesEls.forEach(({el, edge}) => {
+      const touches = related.has(edge.source) && related.has(edge.target) &&
+        (idB ? (edge.source === idA || edge.target === idA) && (edge.source === idB || edge.target === idB)
+             : (edge.source === idA || edge.target === idA));
+      el.classList.toggle('dim', !touches);
+    });
+  }
+  function clearHighlight() {
+    graphNodesEls.forEach(({el}) => el.classList.remove('dim'));
+    graphEdgesEls.forEach(({el}) => el.classList.remove('dim'));
+  }
+
+  function graphZoom(factor, ev) {
+    const newK = Math.max(0.35, Math.min(3, graphView.k * factor));
+    graphView.x = graphWidth / 2 - (graphWidth / 2 - graphView.x) * (newK / graphView.k);
+    graphView.y = graphHeight / 2 - (graphHeight / 2 - graphView.y) * (newK / graphView.k);
+    graphView.k = newK;
+    applyGraphTransform();
+  }
+  function graphResetView() {
+    graphView.x = 0; graphView.y = 0; graphView.k = 1;
+    applyGraphTransform();
+  }
+  function applyGraphTransform() {
+    const vp = document.getElementById('graph-viewport');
+    if (vp) vp.setAttribute('transform', `translate(${graphView.x},${graphView.y}) scale(${graphView.k})`);
+  }
+
+  function buildLegend() {
+    const legend = document.getElementById('graph-legend');
+    const disciplines = [...new Set(graphData.nodes.map(n => n.discipline))].sort();
+    let html = disciplines.map(d =>
+      `<span class="graph-legend-item"><span class="graph-legend-dot" style="background:${disciplineColor(d)}"></span>${d.replace('_', ' ')}</span>`
+    ).join('');
+    if (graphData.edges.some(e => e.severity)) {
+      html += `<span class="graph-legend-item"><span class="graph-legend-dot" style="background:${severityColor('high')}"></span>confirmed conflict (colored, thicker)</span>`;
+    }
+    legend.innerHTML = html;
+  }
+
+  function stepGraph() {
+    const nodes = graphNodes;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        let dx = a.x - b.x, dy = a.y - b.y;
+        let distSq = dx * dx + dy * dy || 0.01;
+        let dist = Math.sqrt(distSq);
+        const force = 3600 / distSq;
+        const fx = (dx / dist) * force, fy = (dy / dist) * force;
+        if (a !== dragNode) { a.vx += fx; a.vy += fy; }
+        if (b !== dragNode) { b.vx -= fx; b.vy -= fy; }
+      }
+    }
+    const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+    graphData.edges.forEach(e => {
+      const a = byId[e.source], b = byId[e.target];
+      const targetDist = 220 - e.avg_score * 130;
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const diff = (dist - targetDist) * 0.018;
+      const fx = (dx / dist) * diff, fy = (dy / dist) * diff;
+      if (a !== dragNode) { a.vx += fx; a.vy += fy; }
+      if (b !== dragNode) { b.vx -= fx; b.vy -= fy; }
+    });
+    nodes.forEach(n => {
+      if (n === dragNode) return;
+      n.vx += (graphWidth / 2 - n.x) * 0.006;
+      n.vy += (graphHeight / 2 - n.y) * 0.006;
+      n.vx *= 0.82; n.vy *= 0.82;
+      n.x += n.vx; n.y += n.vy;
+    });
+
+    graphNodesEls.forEach(({el, node}) => el.setAttribute('transform', `translate(${node.x},${node.y})`));
+    graphEdgesEls.forEach(({el, a, b}) => {
+      el.setAttribute('x1', a.x); el.setAttribute('y1', a.y);
+      el.setAttribute('x2', b.x); el.setAttribute('y2', b.y);
+    });
+  }
+
+  function startGraphLoop() {
+    if (graphRunning) return;
+    graphRunning = true;
+    let idleFrames = 0;
+    function loop() {
+      if (!graphRunning) return;
+      stepGraph();
+      const totalMotion = graphNodes.reduce((sum, n) => sum + Math.abs(n.vx) + Math.abs(n.vy), 0);
+      idleFrames = totalMotion < 0.05 * graphNodes.length ? idleFrames + 1 : 0;
+      // Keeps simulating continuously (not a one-shot settle) but backs off
+      // to a slow poll once it's essentially still, so an open modal doesn't
+      // burn CPU forever - any drag or resize immediately reheats it.
+      if (idleFrames < 200) {
+        graphAnimHandle = requestAnimationFrame(loop);
+      } else {
+        graphAnimHandle = setTimeout(() => requestAnimationFrame(loop), 400);
+      }
+    }
+    loop();
+  }
 </script>
 {% endblock %}

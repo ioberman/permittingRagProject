@@ -25,6 +25,7 @@
       <nav class="site-nav">
         <a href="/">Projects</a>
         <a href="/jurisdictions">Jurisdictions</a>
+        <a href="/metrics">Metrics</a>
         <div class="nav-dropdown">
           <button type="button" class="nav-dropdown-toggle" onclick="toggleDiagramsMenu(event)">Diagrams <span class="chevron">&#9662;</span></button>
           <div id="diagrams-menu" class="nav-dropdown-menu" hidden>
@@ -221,6 +222,9 @@ erDiagram
         string model
         bool is_simulated
         datetime created_at
+        string status
+        string status_note
+        datetime status_updated_at
     }
 
     FLAG_CITATION {

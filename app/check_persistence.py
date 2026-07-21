@@ -20,6 +20,7 @@ clause that's since been superseded by a revision naturally drops out of
 the database as audit history.
 """
 
+from collections import defaultdict
 from typing import Callable
 
 from sqlalchemy.orm import Session
@@ -36,6 +37,7 @@ from app.models import (
     LLMCall,
     Submission,
 )
+from app.retrieval import find_candidate_cross_discipline_clauses_scored
 
 
 def _documents_as_of(session: Session, project_id: str, max_sequence_number: int | None = None) -> list[Document]:
@@ -137,6 +139,66 @@ def diff_between_submissions(session: Session, project_id: str, from_seq: int, t
             "unchanged_count": len(from_clause_ids & to_clause_ids),
         })
     return results
+
+
+def document_graph_data(session: Session, project_id: str) -> dict:
+    """Nodes/edges for the project's document network graph: one node per
+    current sheet, one edge per pair of sheets with at least one
+    cross-discipline retrieval match between them.
+
+    Edges are exhaustive (every sheet-pair above the retrieval similarity
+    threshold), not capped to each sheet's strongest few - deliberately, so
+    the graph never hides a real relationship the retrieval step actually
+    found. Retrieval edges always exist (no LLM/API key needed), which is
+    what makes the graph useful before any cross-discipline check has run;
+    a sheet-pair with a confirmed CROSS_DISCIPLINE flag gets that edge's
+    severity/flag_count set, so the UI can draw it as a stronger, colored
+    edge distinct from a plain retrieval match."""
+    documents = current_documents_for_project(session, project_id)
+    clauses = current_project_clauses(session, project_id)
+    candidates_by_clause = find_candidate_cross_discipline_clauses_scored(clauses)
+
+    nodes = [
+        {
+            "id": d.series.sheet_number,
+            "discipline": d.series.discipline.value,
+            "title": d.series.title,
+            "document_id": d.id,
+        }
+        for d in documents
+    ]
+
+    pair_scores: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for clause in clauses:
+        for candidate, score in candidates_by_clause.get(clause.id, []):
+            key = tuple(sorted([clause.series.sheet_number, candidate.series.sheet_number]))
+            pair_scores[key].append(score)
+
+    severity_rank = {"low": 0, "medium": 1, "high": 2}
+    pair_flags: dict[tuple[str, str], list[Flag]] = defaultdict(list)
+    for flag in current_flags_for_project(session, project_id, CheckType.CROSS_DISCIPLINE):
+        sheets = {flag.clause.series.sheet_number}
+        for citation in flag.citations:
+            if citation.clause:
+                sheets.add(citation.clause.series.sheet_number)
+        if len(sheets) == 2:
+            pair_flags[tuple(sorted(sheets))].append(flag)
+
+    edges = []
+    for key, scores in pair_scores.items():
+        flags_here = pair_flags.get(key, [])
+        max_severity = max((f.severity.value for f in flags_here), key=lambda s: severity_rank[s], default=None)
+        edges.append({
+            "source": key[0],
+            "target": key[1],
+            "count": len(scores),
+            "avg_score": round(sum(scores) / len(scores), 2),
+            "severity": max_severity,
+            "flag_count": len(flags_here),
+            "explanations": [f.explanation for f in flags_here],
+        })
+
+    return {"nodes": nodes, "edges": edges}
 
 
 def _already_checked_clause_ids(session: Session, project_id: str, check_type: CheckType) -> set[str]:

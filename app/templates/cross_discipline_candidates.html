@@ -10,13 +10,18 @@
   a real conflict exists; it does not itself determine conflict vs. no conflict.</p>
 
 <div class="card-table">
-<table>
+<table class="candidates-table">
+  <colgroup>
+    <col style="width: 44%">
+    <col style="width: 44%">
+    <col style="width: 12%">
+  </colgroup>
   <tr><th>Clause</th><th>Candidate (other discipline)</th><th>Similarity</th></tr>
   {% for clause, candidates in rows %}
     {% for candidate, score in candidates %}
     <tr>
-      <td class="label">{{ clause.series.discipline.value }} {{ clause.clause_label }}: {{ clause.text[:80] }}</td>
-      <td class="label">{{ candidate.series.discipline.value }} {{ candidate.clause_label }}: {{ candidate.text[:80] }}</td>
+      <td>{{ clause.series.discipline.value }} {{ clause.clause_label }}: {{ clause.text[:80] }}</td>
+      <td>{{ candidate.series.discipline.value }} {{ candidate.clause_label }}: {{ candidate.text[:80] }}</td>
       <td class="score">{{ "%.2f"|format(score) }}</td>
     </tr>
     {% else %}

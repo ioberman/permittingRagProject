@@ -1,0 +1,3 @@
+1.1 Structured cabling tray for the BMS backbone runs through Electrical Room 210 at 3 feet 0 inches above finished floor, within the switchgear SG-2 working clearance zone.
+1.2 Structured cabling tray for the BMS backbone runs through Electrical Room 214 at ceiling height, outside the switchgear SG-4 working clearance zone.
+2.1 Access control head-end panel is mounted in the security closet at 5 feet 6 inches above finished floor.

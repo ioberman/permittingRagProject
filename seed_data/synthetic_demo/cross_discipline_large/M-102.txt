@@ -1,0 +1,3 @@
+1.1 Ductwork DS-11 within Data Hall 2 shall maintain a minimum clearance of 14 feet 6 inches above finished floor to the bottom of duct insulation.
+1.2 Ductwork DS-14 within Data Hall 3 shall maintain a minimum clearance of 13 feet 0 inches above finished floor to the bottom of duct insulation.
+2.1 Exhaust louver EL-3 penetrates the Data Hall 4 exterior wall at 7 feet 6 inches above finished floor.

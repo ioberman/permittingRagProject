@@ -14,6 +14,9 @@ from app.models import Clause, Discipline, DocType, DocumentClause
 CHICAGO_CODE_PDF = (
     Path(__file__).parent.parent / "seed_data" / "jurisdictions" / "chicago_il_building_code.pdf"
 )
+FP_SCOPE_OF_WORK_PDF = (
+    Path(__file__).parent.parent / "seed_data" / "real_projects" / "uccs_fp_scope_of_work.pdf"
+)
 
 
 def make_test_pdf(text: str) -> bytes:
@@ -108,6 +111,27 @@ def test_extract_pages_pdf_redacts_detected_tables():
     # The table's own header row (verified present via find_tables().extract()
     # above) is gone from the extracted text.
     assert "TYPE OF CONSTRUCTION" not in page_30_text
+
+
+def test_extract_pages_pdf_drops_title_block_noise_on_real_cad_sheet():
+    """Regression test for a real, documented gap (see
+    seed_data/real_projects/README.md): on this real CAD-exported sheet, the
+    unfixed extractor pulled almost entirely title-block noise (addresses,
+    phone numbers formatted like hierarchical section numbers) and the real
+    numbered scope-of-work notes never survived as clauses at all - both a
+    right-margin title-block sidebar and a false-positive whole-page "table"
+    detection were responsible (see extract_pages' comments)."""
+    if not FP_SCOPE_OF_WORK_PDF.exists():
+        import pytest
+        pytest.skip("seed PDF not present in this checkout")
+
+    pages = extract_pages(FP_SCOPE_OF_WORK_PDF.read_bytes(), DocType.PDF_2D, "fp_scope_of_work.pdf")
+    clauses = [c for page_text in pages for c in split_into_clauses(page_text)]
+    bodies = [body for _, body in clauses]
+
+    assert any("SCOPE OF WORK" in body for body in bodies)
+    assert not any("COLFAX AVENUE" in body for body in bodies)
+    assert not any("303-431-6100" in body for body in bodies)
 
 
 def test_extract_pages_pdf():

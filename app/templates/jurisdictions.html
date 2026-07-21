@@ -27,7 +27,14 @@
 
 <h2>Loaded jurisdictions</h2>
 <div class="card-table">
-<table>
+<table class="jurisdictions-table">
+  <colgroup>
+    <col style="width: 22%">
+    <col style="width: 40%">
+    <col style="width: 12%">
+    <col style="width: 12%">
+    <col style="width: 14%">
+  </colgroup>
   <tr><th>Jurisdiction</th><th>Document</th><th>Type</th><th>Clauses</th><th>Ingested</th></tr>
   {% for row in rows %}
   <tr>

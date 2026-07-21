@@ -30,6 +30,7 @@ from app.check_persistence import (
     current_flags_for_project,
     current_project_clauses,
     diff_between_submissions,
+    document_graph_data,
 )
 from app.clause_extraction import extract_and_store_clauses, extract_and_store_jurisdiction_clauses
 from app.conflict_detection import check_submission_for_conflicts
@@ -57,6 +58,7 @@ from app.models import (
     DocumentClause,
     DocumentSeries,
     Flag,
+    FlagStatus,
     Jurisdiction,
     JurisdictionClause,
     JurisdictionDocument,
@@ -67,6 +69,12 @@ from app.models import (
 from app.retrieval import find_candidate_cross_discipline_clauses_scored
 
 app = Flask(__name__)
+# Off by default outside debug mode, which means a long-running `flask run`
+# process silently keeps serving whatever a template looked like on its
+# first render - editing the .html file on disk has no effect until the
+# process restarts. Cheap to force on (an mtime check per render) and worth
+# it to not chase a "bug" that's actually just a stale server.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
 
 
@@ -147,6 +155,47 @@ def _project_summary_rows(session):
             "cross_status_class": cross_status_class,
         })
     return rows
+
+
+def _project_metrics(session, project):
+    """One project's row on the metrics page.
+
+    Deliberately does NOT compute "first-pass approval rate" or a dollar
+    "rework avoided" figure - this app has no signal for actual jurisdiction
+    approval/rejection outcomes or true rework cost, only what it caught
+    pre-submission. Reporting those two headline numbers from data that
+    can't support them would be a fabricated metric wearing a real one's
+    name, so this reports only what's actually measurable: flags caught,
+    reviewer-confirmed precision (once reviewers start using the status
+    control on the flags page), and revision cycle time."""
+    submissions = (
+        session.query(Submission)
+        .filter_by(project_id=project.id)
+        .order_by(Submission.sequence_number)
+        .all()
+    )
+    flags = current_flags_for_project(session, project.id)
+
+    reviewed = [f for f in flags if f.status != FlagStatus.OPEN]
+    confirmed_real = sum(1 for f in reviewed if f.status in (FlagStatus.ACKNOWLEDGED, FlagStatus.RESOLVED))
+    false_positives = sum(1 for f in reviewed if f.status == FlagStatus.FALSE_POSITIVE)
+
+    cycle_days = None
+    if len(submissions) >= 2:
+        cycle_days = (submissions[-1].submitted_at - submissions[0].submitted_at).days
+
+    return {
+        "id": project.id,
+        "name": project.name,
+        "revision_count": len(submissions),
+        "cycle_days": cycle_days,
+        "flags_caught": len(flags),
+        "high_severity_open": sum(1 for f in flags if f.severity.value == "high" and f.status == FlagStatus.OPEN),
+        "reviewed_count": len(reviewed),
+        "confirmed_real": confirmed_real,
+        "false_positives": false_positives,
+        "precision_pct": round(100 * confirmed_real / len(reviewed)) if reviewed else None,
+    }
 
 
 def _severity_rank_sort(flags):
@@ -403,6 +452,15 @@ def cross_discipline_candidates(project_id):
     )
 
 
+@app.get("/projects/<project_id>/document-graph")
+def project_document_graph(project_id):
+    session = get_session()
+    project = session.get(Project, project_id)
+    if project is None:
+        return jsonify({"error": "Project not found"}), 404
+    return jsonify(document_graph_data(session, project_id))
+
+
 @app.get("/projects/<project_id>/diff")
 def project_diff(project_id):
     session = get_session()
@@ -517,13 +575,61 @@ def project_flags(project_id):
     if project is None:
         return redirect("/?error=Project not found")
 
-    flags = _severity_rank_sort(current_flags_for_project(session, project_id))
+    type_filter = request.args.get("type", "all")
+    check_type = {"jurisdiction": CheckType.JURISDICTION, "cross_discipline": CheckType.CROSS_DISCIPLINE}.get(type_filter)
+    flags = _severity_rank_sort(current_flags_for_project(session, project_id, check_type))
+    all_flags = flags if check_type is None else current_flags_for_project(session, project_id)
     return render_template(
         "flags.html",
         project=project.name,
         project_id=project.id,
         flags=flags,
+        type_filter=type_filter,
+        jurisdiction_count=sum(1 for f in all_flags if f.check_type == CheckType.JURISDICTION),
+        cross_discipline_count=sum(1 for f in all_flags if f.check_type == CheckType.CROSS_DISCIPLINE),
     )
+
+
+@app.get("/metrics")
+def metrics():
+    session = get_session()
+    projects = session.query(Project).order_by(Project.name).all()
+    rows = [_project_metrics(session, p) for p in projects]
+
+    all_flags_total = sum(r["flags_caught"] for r in rows)
+    all_reviewed = sum(r["reviewed_count"] for r in rows)
+    all_confirmed_real = sum(r["confirmed_real"] for r in rows)
+    portfolio_precision_pct = round(100 * all_confirmed_real / all_reviewed) if all_reviewed else None
+
+    return render_template(
+        "metrics.html",
+        rows=rows,
+        all_flags_total=all_flags_total,
+        all_reviewed=all_reviewed,
+        portfolio_precision_pct=portfolio_precision_pct,
+    )
+
+
+@app.post("/flags/<flag_id>/status")
+def update_flag_status(flag_id):
+    """Records a reviewer's disposition of a flag - open/acknowledged/resolved/
+    false positive, plus an optional note. This is the "pilot alongside human
+    review" hook: it doesn't compare against an independent review pass, but
+    it does let a reviewer mark what the tool got right or wrong, which the
+    metrics view then rolls up into a reviewer-confirmed precision figure."""
+    session = get_session()
+    flag = session.get(Flag, flag_id)
+    if flag is None:
+        return redirect("/?error=Flag not found")
+
+    try:
+        flag.status = FlagStatus(request.form["status"])
+    except ValueError:
+        return redirect(f"/projects/{flag.submission.project_id}/flags?error=Invalid status")
+    flag.status_note = request.form.get("status_note") or None
+    flag.status_updated_at = datetime.now(timezone.utc)
+    session.commit()
+    return redirect(f"/projects/{flag.submission.project_id}/flags")
 
 
 @app.get("/flags/<flag_id>/reasoning")

@@ -74,7 +74,10 @@ flowchart TD
    shown are dropped before persistence, as defense in depth.
 4. **Trace & persist** — every clause actually reasoned over gets an
    `LLM_CALL` row, whether or not it produced a flag (`app/check_persistence.py`).
-   A `Flag` always traces back to exactly one `LLM_CALL`.
+   A `Flag` always traces back to exactly one `LLM_CALL`. A flag also carries
+   a reviewer disposition (`Flag.status` - open/acknowledged/resolved/false
+   positive, set from the flags page), independent of this pipeline; see
+   ERD.md.
 5. **Continuous** — `Clause` rows are immutable and content-hash deduped, so
    a clause only ever needs reasoning once per check type, ever. A new
    revision only triggers reasoning on genuinely new/changed clauses

@@ -3,16 +3,41 @@
 {% block content %}
 
 <a class="crumb" href="/projects/{{ project_id }}">&larr; back to {{ project }}</a>
-<div class="eyebrow">Flags</div>
-<h1 class="serif">Current flags &mdash; {{ project }}</h1>
-<p class="info">Every clause is only ever reasoned about once per check type - a flag
-  found under an earlier revision stays current here until the clause it's about is
-  itself superseded by a later revision, not until the whole project is re-checked.</p>
-<p class="meta">{{ flags|length }} flag(s) found &middot; <a href="/projects/{{ project_id }}/audit-report" class="action-link">view audit report &rarr;</a></p>
+<div class="page-title-row">
+  <div>
+    <div class="eyebrow">Flags</div>
+    <h1 class="serif">Current flags &mdash; {{ project }}</h1>
+  </div>
+  <span class="info-tooltip" tabindex="0">
+    <span class="info-tooltip-icon" aria-hidden="true">i</span>
+    <span class="info-tooltip-content">Every clause is only ever reasoned about once per check
+      type - a flag found under an earlier revision stays current here until the clause it's
+      about is itself superseded by a later revision, not until the whole project is
+      re-checked.</span>
+  </span>
+</div>
+<p class="meta">{{ flags|length }} flag(s) found &middot; <a href="/projects/{{ project_id }}/audit-report" class="action-link">view audit report &rarr;</a> &middot; <a href="/metrics" class="action-link">view metrics &rarr;</a></p>
+
+<div class="filter-tabs">
+  <a class="filter-tab {{ 'active' if type_filter == 'all' }}" href="?type=all">All ({{ jurisdiction_count + cross_discipline_count }})</a>
+  <a class="filter-tab {{ 'active' if type_filter == 'jurisdiction' }}" href="?type=jurisdiction">vs. code ({{ jurisdiction_count }})</a>
+  <a class="filter-tab {{ 'active' if type_filter == 'cross_discipline' }}" href="?type=cross_discipline">Cross-discipline ({{ cross_discipline_count }})</a>
+</div>
 
 <div class="card-table">
-<table>
-  <tr><th>Type</th><th>Severity</th><th>Clause</th><th>Found in</th><th>Explanation</th><th>Cited</th><th>Model</th><th></th></tr>
+<table class="flags-table">
+  <colgroup>
+    <col style="width: 7%">
+    <col style="width: 7%">
+    <col style="width: 6%">
+    <col style="width: 6%">
+    <col style="width: 30%">
+    <col style="width: 9%">
+    <col style="width: 9%">
+    <col style="width: 17%">
+    <col style="width: 9%">
+  </colgroup>
+  <tr><th>Type</th><th>Severity</th><th>Clause</th><th>Found in</th><th>Explanation</th><th>Cited</th><th>Model</th><th>Status</th><th></th></tr>
   {% for f in flags %}
   <tr>
     <td>{{ "cross-discipline" if f.check_type.value == "cross_discipline" else "vs. code" }}</td>
@@ -29,6 +54,18 @@
     <td>
       {{ f.model }}
       {% if f.is_simulated %}<span class="placeholder-badge" title="Keyword heuristic, not real model reasoning">simulated</span>{% endif %}
+    </td>
+    <td>
+      <form class="flag-status-form" method="post" action="/flags/{{ f.id }}/status">
+        <span class="status-pill status-{{ f.status.value }}">{{ f.status.value.replace('_', ' ') }}</span>
+        <select name="status" aria-label="Reviewer status">
+          {% for s in ["open", "acknowledged", "resolved", "false_positive"] %}
+          <option value="{{ s }}" {% if f.status.value == s %}selected{% endif %}>{{ s.replace('_', ' ') }}</option>
+          {% endfor %}
+        </select>
+        <input type="text" name="status_note" placeholder="note (optional)" value="{{ f.status_note or '' }}">
+        <button type="submit" class="btn sm">Save</button>
+      </form>
     </td>
     <td><a href="/flags/{{ f.id }}/reasoning">view reasoning</a></td>
   </tr>

@@ -1,0 +1,3 @@
+1.1 Door D-21 to Electrical Room 210 swings inward with a 42 inch arc centered 8 inches off the west wall.
+1.2 Door D-24 to Electrical Room 214 swings outward into the corridor, clear of the room's interior wall faces.
+2.1 Egress path from Data Hall 1 to the north stair maintains a minimum clear width of 44 inches.

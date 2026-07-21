@@ -21,6 +21,18 @@
   --warn-soft: #f3ecd9;
   --shadow: 0 1px 3px rgba(23, 22, 15, 0.06);
   --focus: rgba(63, 82, 48, 0.3);
+
+  /* Document network graph - discipline node colors, chosen to stay
+     visually distinct from --danger/--warn (reserved for flag severity),
+     so "which discipline" and "how bad" never read as the same signal. */
+  --disc-architectural: #3d5a80;
+  --disc-structural: #52606d;
+  --disc-mechanical: #2f7a72;
+  --disc-electrical: #6b4a7a;
+  --disc-plumbing: #2f6b8a;
+  --disc-civil: #6b7a2f;
+  --disc-fire_protection: #a15c2f;
+  --disc-low_voltage: #8a4a6b;
 }
 
 :root[data-theme="dark"] {
@@ -39,6 +51,15 @@
   --warn-soft: #2c2515;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   --focus: rgba(169, 194, 141, 0.35);
+
+  --disc-architectural: #8fa8c9;
+  --disc-structural: #a8b6c2;
+  --disc-mechanical: #7fc0b6;
+  --disc-electrical: #b090c2;
+  --disc-plumbing: #7fb8d9;
+  --disc-civil: #b8c97f;
+  --disc-fire_protection: #d9a273;
+  --disc-low_voltage: #c98fb0;
 }
 
 * { box-sizing: border-box; }
@@ -106,6 +127,24 @@ h1 { font-size: 1.85rem; font-weight: 400; letter-spacing: -0.01em; margin: 0 0 
 .meta { color: var(--ink-soft); font-size: 0.87rem; margin-bottom: 1rem; }
 .meta div { margin-bottom: 0.25rem; }
 
+.page-title-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+
+.info-tooltip { position: relative; display: inline-flex; margin-bottom: 0.4rem; }
+.info-tooltip-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem;
+  border-radius: 50%; border: 1px solid var(--rule-strong); color: var(--ink-soft); font-size: 0.8rem;
+  font-weight: 700; font-style: italic; font-family: Georgia, "Iowan Old Style", serif; cursor: help;
+}
+.info-tooltip:hover .info-tooltip-icon, .info-tooltip:focus-within .info-tooltip-icon {
+  color: var(--accent); border-color: var(--accent);
+}
+.info-tooltip-content {
+  display: none; position: absolute; top: 130%; right: 0; width: 20rem; max-width: 70vw; text-align: left;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow);
+  padding: 0.8rem 1rem; font-size: 0.82rem; line-height: 1.5; color: var(--ink-soft); z-index: 10;
+}
+.info-tooltip:hover .info-tooltip-content, .info-tooltip:focus-within .info-tooltip-content { display: block; }
+
 h2 {
   font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-faint);
   font-weight: 700; margin: 2.75rem 0 1rem;
@@ -149,19 +188,67 @@ h2 {
   background: var(--accent-soft); padding: 0.15rem 0.55rem; border-radius: 999px; white-space: nowrap;
 }
 
+.status-pill {
+  display: inline-block; align-self: flex-start; font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.04em; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px;
+  white-space: nowrap; margin-bottom: 0.5rem;
+}
+.status-open { background: var(--ink-faint); color: var(--surface); }
+.status-acknowledged { background: var(--warn-soft); color: var(--warn); }
+.status-resolved { background: var(--accent-soft); color: var(--accent); }
+.status-false_positive { background: var(--rule); color: var(--ink-soft); }
+
+.flag-status-form { display: flex; flex-direction: column; gap: 0.4rem; width: 100%; min-width: 0; }
+.flag-status-form select, .flag-status-form input[type="text"] {
+  font-size: 0.82rem; padding: 0.35rem 0.5rem; width: 100%; min-width: 0; box-sizing: border-box;
+}
+.flag-status-form .btn.sm { align-self: flex-start; }
+
+/* table-layout: fixed - the flags table has a wide status-editing column
+   (select + text input + button) that, under the default auto layout,
+   claimed space by squeezing every other column below its content's
+   intrinsic width, wrapping header text mid-word and spilling cell content
+   into its neighbor (the status pill visually overlapped "view reasoning").
+   Fixed layout + colgroup percentages give every column a stable width that
+   content wraps inside instead of fighting over. */
+/* table-layout: fixed on every data table with 4+ columns or any column
+   whose content can't wrap - table-layout: auto sizes columns off content
+   across ALL rows, so one nowrap/wide column (a form, a pill, a long
+   single-line string) starves the others, wrapping header text mid-word or
+   spilling cell content into its neighbor. Fixed layout + colgroup gives
+   each column a stable width that content wraps inside instead of fighting
+   over. Simple 2-3 column tables with only short/wrapping content (e.g.
+   diff.html's) are low-risk and left on the default auto layout. */
+.flags-table, .metrics-table, .candidates-table, .jurisdictions-table,
+.clauses-table, .audit-table, .projects-table, .sheets-table { table-layout: fixed; }
+.flags-table td, .flags-table th, .metrics-table td, .metrics-table th,
+.candidates-table td, .candidates-table th, .jurisdictions-table td, .jurisdictions-table th,
+.clauses-table td, .clauses-table th, .audit-table td, .audit-table th,
+.projects-table td, .projects-table th, .sheets-table td, .sheets-table th { overflow-wrap: break-word; }
+
+.filter-tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
+.filter-tab {
+  font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); text-decoration: none;
+  padding: 0.4rem 0.9rem; border-radius: 999px; border: 1px solid var(--rule-strong); background: var(--surface);
+}
+.filter-tab:hover { color: var(--ink); border-color: var(--ink-faint); }
+.filter-tab.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+
 /* ---------- Tables (live inside .card-table) ---------- */
 
 table { width: 100%; border-collapse: collapse; }
 th {
   text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
-  font-weight: 700; padding: 1rem 0 0.7rem; border-bottom: 1px solid var(--rule-strong);
+  font-weight: 700; padding: 1rem 1rem 0.7rem 0; border-bottom: 1px solid var(--rule-strong);
 }
-td { padding: 0.9rem 0; border-bottom: 1px solid var(--rule); font-size: 0.92rem; vertical-align: top; color: var(--ink); }
+td { padding: 0.9rem 1rem 0.9rem 0; border-bottom: 1px solid var(--rule); font-size: 0.92rem; vertical-align: top; color: var(--ink); }
+/* Last column never needs trailing gutter - nothing sits to its right. */
+th:last-child, td:last-child { padding-right: 0; }
 tr:last-child td { border-bottom: none; }
 td a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule-strong); font-weight: 500; }
 td a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .card-table { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 0 1.25rem; box-shadow: var(--shadow); margin-bottom: 2rem; overflow-x: auto; }
-.card-table th, .card-table td { padding-left: 0; padding-right: 0; }
+.card-table th, .card-table td { padding-left: 0; }
 .card-table tr:first-child th { padding-top: 1.15rem; }
 .score { font-variant-numeric: tabular-nums; color: var(--ink-soft); }
 .added { background: var(--accent-soft); }
@@ -170,6 +257,7 @@ td a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 /* ---------- Forms (generic) ---------- */
 
 fieldset { border: 1px solid var(--rule); border-radius: 8px; margin-bottom: 1.5rem; padding: 0.5rem 1.4rem 1.4rem; background: var(--surface); box-shadow: var(--shadow); }
+fieldset > button { display: block; margin-top: 1.4rem; }
 label { display: block; margin-top: 1rem; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: var(--ink-soft); }
 input, select {
   padding: 0.55rem 0.6rem; margin-top: 0.35rem; box-sizing: border-box; width: 100%;
@@ -320,4 +408,47 @@ pre {
 .diagram-pane.active { display: block; }
 .mermaid-output { display: flex; justify-content: center; }
 .mermaid-output svg { max-width: 100%; height: auto; }
+
+/* ---------- Document network graph ---------- */
+
+.graph-modal { max-width: 1180px; height: 88vh; }
+.graph-modal .modal-body { padding: 0; position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.graph-note {
+  margin: 0; padding: 0.65rem 1.4rem; font-size: 0.8rem; color: var(--accent); background: var(--accent-soft);
+  border-bottom: 1px solid var(--rule); flex-shrink: 0;
+}
+.graph-canvas-wrap { position: relative; flex: 1; min-height: 0; }
+#graph-svg { display: block; width: 100%; height: 100%; cursor: grab; background: var(--bg); }
+#graph-svg.panning { cursor: grabbing; }
+.graph-node circle { stroke: var(--surface); stroke-width: 2.5px; cursor: pointer; transition: opacity 0.15s; }
+.graph-node text { font-size: 11px; font-weight: 700; fill: var(--ink); pointer-events: none; transition: opacity 0.15s; }
+.graph-node .sub { font-size: 8.5px; font-weight: 500; fill: var(--ink-faint); }
+.graph-node.dim circle, .graph-node.dim text { opacity: 0.22; }
+.graph-edge { stroke: var(--ink-faint); fill: none; cursor: pointer; transition: opacity 0.15s, stroke-width 0.15s; }
+.graph-edge.dim { opacity: 0.06 !important; }
+.graph-edge.highlight { opacity: 0.95 !important; }
+
+.graph-controls {
+  position: absolute; top: 0.8rem; right: 0.8rem; display: flex; flex-direction: column; gap: 0.3rem; z-index: 2;
+}
+.graph-zoom-btn {
+  width: 1.9rem; height: 1.9rem; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--surface);
+  color: var(--ink); font-size: 1rem; line-height: 1; cursor: pointer; box-shadow: var(--shadow);
+}
+.graph-zoom-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.graph-legend {
+  display: flex; flex-wrap: wrap; gap: 0.9rem; padding: 0.75rem 1.4rem; border-top: 1px solid var(--rule);
+  font-size: 0.76rem; color: var(--ink-soft); flex-shrink: 0;
+}
+.graph-legend-item { display: flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.graph-legend-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+.graph-tooltip {
+  position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 0.76rem;
+  padding: 0.5rem 0.7rem; border-radius: 6px; max-width: 260px; line-height: 1.45; opacity: 0; transition: opacity 0.1s;
+  z-index: 5; box-shadow: var(--shadow);
+}
+.graph-tooltip.show { opacity: 1; }
+.graph-tooltip .sev-high, .graph-tooltip .sev-medium, .graph-tooltip .sev-low { font-weight: 700; }
 

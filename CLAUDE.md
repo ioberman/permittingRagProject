@@ -27,21 +27,36 @@ baseline.
 - Target: compress the ~1-week manual QA cycle to 2–4 hours.
 
 ## Product requirements, in priority order
-1. Upload/ingest a plan set (multi-discipline, mixed BIM/2D)
-2. Cross-discipline conflict detection
+As of 2026-07-21, all six are built - see the note after each. BIM ingest
+(part of #1) and a couple of trust/adoption items below are the main
+remaining gaps; ask before assuming what's next rather than picking for
+yourself.
+1. Upload/ingest a plan set (multi-discipline, mixed BIM/2D) — 2D/spec done;
+   BIM ingest is still a stub (`app/clause_extraction.py` skips it outright).
+2. Cross-discipline conflict detection — done (`app/cross_discipline_detection.py`),
+   scored against a labeled fixture via `scripts/run_eval.py`.
 3. **Explainable, citation-backed flags — hard requirement, not a nice-to-have.**
    Every flag must point to the specific sheets/clauses involved. Reviewers said an
-   unexplained miss would erode trust.
+   unexplained miss would erode trust. — done (`FlagCitation`, forced tool-use).
 4. Continuous re-check on change — re-run only affected checks, not a full re-review
-5. Audit trail/export — timestamped, suitable for lenders/boards/E&O review
+   — done (`app/check_persistence.py::run_check`, content-hash-driven).
+5. Audit trail/export — timestamped, suitable for lenders/boards/E&O review — done
+   (`/projects/<id>/audit-report`, `.csv`).
 6. Metrics dashboard — first-pass approval rate, cycle time before/after, rework
-   avoided
+   avoided — done as `/metrics`, with an honest scope caveat: it reports flags
+   caught, reviewer-confirmed precision, and cycle time, not a fabricated
+   approval-rate or dollar-rework figure the app has no data to support.
 
 ## Trust and adoption requirements (from customer evidence — do not skip)
 - Must support a pilot-alongside-human-review mode (tool output compared against a
-  human reviewer's, not blindly trusted).
-- Visible data security posture — will be reviewed by legal/security.
+  human reviewer's, not blindly trusted). — partial: flags carry a reviewer
+  status (open/acknowledged/resolved/false_positive, see `Flag.status`) that
+  rolls up into `/metrics`' precision figure, but there's no mechanism yet to
+  compare against an independent human review pass, just record disposition
+  of the tool's own output.
+- Visible data security posture — will be reviewed by legal/security. — not started.
 - Must handle a "cold start" — no existing document repository is a known objection.
+  — done; the app has never depended on a pre-existing document repository.
 
 ## Architecture decisions already made (don't relitigate without a reason)
 - **Retrieval unit = clause, not fixed-token chunks.** Citations need to point at
@@ -51,28 +66,48 @@ baseline.
   fact. The model is constrained to a JSON schema (`report_conflicts`) so citations
   can only reference clause_ids it was actually shown — it can't invent a citation
   to something not in its context window.
-- **Retrieval and generation are separate steps.** A cheap/fast method (currently
-  TF-IDF cosine similarity) narrows candidate cross-discipline pairs before the LLM
-  reasons over them — this keeps the LLM from having to compare every clause
-  against every other clause (O(n²), doesn't scale, wastes tokens).
+- **Retrieval and generation are separate steps.** A cheap/fast method (a local
+  sentence-embedding model, `all-MiniLM-L6-v2`, cosine similarity — no API key,
+  see `app/retrieval.py`) narrows candidate pairs, both jurisdiction and
+  cross-discipline, before the LLM reasons over them — this keeps the LLM from
+  having to compare every clause against every other clause (O(n²), doesn't
+  scale, wastes tokens).
 - **Real vs. simulated must always be labeled clearly**, both in code comments and
   in any UI. `app/llm_mock.py` is a crude keyword-heuristic stand-in for
   `app/llm.py` — it exists so the pipeline is runnable without an API key, not as a
   design for how conflict detection should actually work. Never let a mock's output
   be mistaken for the real model's reasoning.
 
-## Data engineering roadmap (the current focus — prioritize this work)
-In order of leverage:
-1. Document/clause storage with revision history — the prerequisite for everything
-   below.
-2. Revision diffing at clause granularity (what changed between Rev B → Rev C).
-3. Incremental re-check triggering off that diff (requirement 4 above).
-4. Observability/logging for every LLM call — inputs, outputs, tokens, cost,
-   latency, model version. Needed both for cost tracking and because "what did the
-   model see" is exactly what an E&O/legal reviewer will ask.
-5. Evaluation harness — a small labeled set of true-conflict / true-non-conflict
-   clause pairs to measure retrieval+LLM precision/recall as prompts or models
-   change, rather than eyeballing single examples.
+## Data engineering roadmap — complete as of 2026-07-21
+All five items below are done; kept here as a record of what was planned and
+delivered, not as an active work list. See "What's actually next" below for
+where things stand now.
+1. Document/clause storage with revision history — done (`app/models.py`'s
+   `Submission`/`DocumentSeries`/`Document`/`Clause` chain).
+2. Revision diffing at clause granularity (what changed between Rev B → Rev C)
+   — done (`app/check_persistence.py::diff_between_submissions`, `/projects/<id>/diff`).
+3. Incremental re-check triggering off that diff — done (`run_check`, skips
+   any clause already reasoned about for a given check_type).
+4. Observability/logging for every LLM call — done (`LLMCall` model: prompt,
+   raw response, tokens, latency, model, logged whether or not it produced a
+   flag).
+5. Evaluation harness — done (`scripts/run_eval.py`, scored against
+   `seed_data/synthetic_demo/manifest.json`; see that fixture's own README
+   for current precision/recall numbers).
+
+## What's actually next
+Not prescriptive — ask before picking one, this is context for the
+conversation, not a queue. As of 2026-07-21, in rough order of what would
+most affect a real pilot:
+- Real-document extraction quality on CAD-exported sheets — partially fixed
+  (see `seed_data/real_projects/README.md`); still poor on pages where a
+  sheet's title-block content overlaps the same column as body prose.
+- BIM ingestion (part of product requirement #1) — still a stub.
+- Auth / multi-user support — every action still attributes to a hardcoded
+  placeholder submitter; blocks a team actually using this together, not
+  just one person demoing it.
+- The remaining trust/adoption gaps above (visible security posture, a true
+  independent-reviewer comparison rather than just flag-status tracking).
 
 ## Working style
 - Propose a rough design/schema before writing code for anything non-trivial —

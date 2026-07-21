@@ -64,6 +64,8 @@ MIN_WORDS = 2  # deliberately low - table redaction handles the worst noise;
                # single-letter table cells), not clip legitimately terse clauses
 WORD_RE = re.compile(r"[A-Za-z]{2,}")
 
+RIGHT_MARGIN_CUTOFF = 0.85  # fraction of page width - see extract_pages()
+
 storage = LocalFileStorage()
 
 
@@ -141,10 +143,46 @@ def extract_pages(content: bytes, doc_type: DocType, filename: str) -> list[str]
             pages = []
             for page in doc:
                 tables = page.find_tables()
-                if tables.tables:
-                    for table in tables.tables:
-                        page.add_redact_annot(fitz.Rect(table.bbox))
-                    page.apply_redactions()
+                page_area = page.rect.width * page.rect.height
+                for table in tables.tables:
+                    x0, y0, x1, y1 = table.bbox
+                    # find_tables() occasionally misreads a page with dense,
+                    # grid-aligned legend/schedule content as one giant
+                    # sparse table spanning nearly the whole sheet (seen on
+                    # 5/5 real sheets tested: exactly one bogus "table" per
+                    # page at 84-86% of page area, engulfing real prose in
+                    # its bounding box, vs. every genuine detected table on
+                    # those same pages staying under ~2%). Redacting a
+                    # false positive that size would wipe the page's actual
+                    # content, not just table noise - skip anything
+                    # implausibly large for an actual table.
+                    if (x1 - x0) * (y1 - y0) > 0.3 * page_area:
+                        continue
+                    page.add_redact_annot(fitz.Rect(table.bbox))
+
+                # CAD-exported sheets (as opposed to linear code-book PDFs)
+                # carry a title-block sidebar - firm names/addresses, phone
+                # numbers, revision-stamp dates, sheet/project numbers -
+                # positioned in a narrow column along the sheet's right
+                # edge. get_text()'s reading order follows the PDF content
+                # stream, not visual layout, so that sidebar text interleaves
+                # with real body notes; CLAUSE_MARKER's line-start regex then
+                # fires on a phone number ("720-213-7550" reads identically
+                # to a hierarchical section number) or a street address
+                # ("12499 WEST COLFAX AVENUE" easily clears MIN_WORDS) as
+                # readily as a real numbered note. Verified against 5 real
+                # sheets from seed_data/real_projects (a public bid set) via
+                # get_text("blocks") bounding boxes: every sheet has a hard
+                # gap with zero content between 71% and 91% of page width -
+                # real body/legend text never crosses 71%, title-block
+                # content never starts before 91% - so redacting the
+                # rightmost margin is safe across every sheet in that set,
+                # not just the one it was measured on. RIGHT_MARGIN_CUTOFF
+                # sits in the middle of that gap for a safety margin against
+                # sheets with a slightly different template.
+                margin_x = page.rect.width * RIGHT_MARGIN_CUTOFF
+                page.add_redact_annot(fitz.Rect(margin_x, 0, page.rect.width, page.rect.height))
+                page.apply_redactions()
                 pages.append(page.get_text())
             return pages
 
