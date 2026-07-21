@@ -88,14 +88,30 @@ if os.environ.get("AUTO_SEED_ON_START"):
     # instead would write those files to the wrong filesystem entirely.
     # Every seed script is idempotent (checks what's already ingested), so
     # this is safe to leave on across every subsequent deploy/restart too.
-    from scripts import seed_demo_data, seed_jurisdictions, seed_large_demo
+    #
+    # Runs in a background thread, NOT inline here at import time - Render
+    # (and most PaaS hosts) kill a deploy if the process doesn't bind to a
+    # port within a few minutes, and seeding Chicago's real code text alone
+    # produces 3800+ clauses, comfortably enough to blow past that timeout
+    # on a free-tier CPU if it has to finish before gunicorn can even start
+    # listening. Confirmed this the hard way: a real deploy hung on "No open
+    # ports detected" for 5+ minutes and timed out with the seeding call
+    # inline here. The projects list will just look empty for the minute or
+    # two seeding actually takes after a fresh deploy now, instead of the
+    # whole app failing to come up at all.
+    import threading
 
-    try:
-        seed_jurisdictions.main()
-        seed_demo_data.main()
-        seed_large_demo.main()
-    except Exception as e:
-        print(f"AUTO_SEED_ON_START failed (app will still start): {e}")
+    def _seed_in_background():
+        from scripts import seed_demo_data, seed_jurisdictions, seed_large_demo
+
+        try:
+            seed_jurisdictions.main()
+            seed_demo_data.main()
+            seed_large_demo.main()
+        except Exception as e:
+            print(f"AUTO_SEED_ON_START failed: {e}")
+
+    threading.Thread(target=_seed_in_background, daemon=True).start()
 
 
 def get_session():
