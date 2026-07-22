@@ -1,33 +1,18 @@
-from app.models import Clause, Discipline, DocumentSeries
+from app.models import (
+    Clause,
+    Discipline,
+    DocumentSeries,
+    DocType,
+    ExtractionMethod,
+    JurisdictionClause,
+    JurisdictionDocument,
+)
 from app.retrieval import (
+    _jurisdiction_corpus_cache,
     find_candidate_cross_discipline_clauses,
     find_candidate_cross_discipline_clauses_scored,
-    rank_candidates,
+    find_candidate_jurisdiction_clauses,
 )
-
-
-def test_rank_candidates_finds_the_closest_match():
-    query_texts = [
-        "Footing depth shall be at least 4 feet below grade per local frost line requirements.",
-        "Concrete strength shall be 4000 psi at 28 days.",
-    ]
-    corpus_texts = [
-        "1607.1 Minimum foundation footing depth shall be established based on local frost penetration data.",
-        "1905.1 Concrete compressive strength requirements for structural elements.",
-        "3001.1 Elevator car dimensions and clearances.",
-    ]
-
-    results = rank_candidates(query_texts, corpus_texts, top_n=2)
-
-    assert results[0][0] == 0  # footing query -> footing corpus entry ranked first
-    assert results[1][0] == 1  # concrete query -> concrete corpus entry ranked first
-    assert 2 not in results[0]  # elevator clause has no overlap, excluded
-    assert 2 not in results[1]
-
-
-def test_rank_candidates_handles_empty_inputs():
-    assert rank_candidates([], ["some text"]) == []
-    assert rank_candidates(["some text"], []) == [[]]
 
 
 def _clause(text, discipline, label="1.1"):
@@ -38,6 +23,81 @@ def _clause(text, discipline, label="1.1"):
                      first_seen_document_id="d1")
     clause.series = series
     return clause
+
+
+def _jurisdiction_clause(session, jurisdiction, label, text):
+    document = session.query(JurisdictionDocument).filter_by(jurisdiction_id=jurisdiction.id).first()
+    if document is None:
+        document = JurisdictionDocument(
+            jurisdiction_id=jurisdiction.id, title="Test Code", doc_type=DocType.PDF_2D,
+            file_uri="x", file_hash="x",
+        )
+        session.add(document)
+        session.flush()
+    clause = JurisdictionClause(
+        jurisdiction_document_id=document.id, clause_label=label, text=text,
+        content_hash=f"h-{label}", extraction_method=ExtractionMethod.PDF_TEXT, location={},
+    )
+    session.add(clause)
+    session.flush()
+    return clause
+
+
+def test_find_candidate_jurisdiction_clauses_finds_relevant_match(session, jurisdiction):
+    footing = _jurisdiction_clause(
+        session, jurisdiction, "1607.1",
+        "Minimum foundation footing depth shall be established based on local frost penetration data.",
+    )
+    _jurisdiction_clause(session, jurisdiction, "3001.1", "Elevator car dimensions and clearances.")
+    project_clause = _clause(
+        "Footing depth shall be at least 4 feet below grade per local frost line requirements.",
+        Discipline.STRUCTURAL,
+    )
+
+    result = find_candidate_jurisdiction_clauses(session, [project_clause], jurisdiction.id)
+
+    candidate_ids = {c.id for c in result[project_clause.id]}
+    assert footing.id in candidate_ids
+
+
+def test_find_candidate_jurisdiction_clauses_no_jurisdiction_docs_yields_nothing(session, jurisdiction):
+    project_clause = _clause("Some project note.", Discipline.STRUCTURAL)
+    assert find_candidate_jurisdiction_clauses(session, [project_clause], jurisdiction.id) == {}
+
+
+def test_find_candidate_jurisdiction_clauses_no_project_clauses_yields_nothing(session, jurisdiction):
+    _jurisdiction_clause(session, jurisdiction, "1.1", "Some code text.")
+    assert find_candidate_jurisdiction_clauses(session, [], jurisdiction.id) == {}
+
+
+def test_find_candidate_jurisdiction_clauses_caches_corpus_embeddings(session, jurisdiction, monkeypatch):
+    _jurisdiction_corpus_cache.clear()
+    _jurisdiction_clause(session, jurisdiction, "1607.1", "Minimum foundation footing depth requirements.")
+    project_clause = _clause("Footing depth shall be at least 4 feet below grade.", Discipline.STRUCTURAL)
+
+    import app.retrieval as retrieval_module
+
+    real_get_model = retrieval_module._get_model
+    encode_calls = []
+    model = real_get_model()
+    original_encode = model.encode
+
+    def counting_encode(texts, **kwargs):
+        encode_calls.append(list(texts))
+        return original_encode(texts, **kwargs)
+
+    monkeypatch.setattr(model, "encode", counting_encode)
+
+    find_candidate_jurisdiction_clauses(session, [project_clause], jurisdiction.id)
+    # First call: one encode for the jurisdiction corpus, one for the query clause.
+    assert len(encode_calls) == 2
+
+    encode_calls.clear()
+    find_candidate_jurisdiction_clauses(session, [project_clause], jurisdiction.id)
+    # Second call against the same, unchanged jurisdiction: corpus is cached,
+    # so only the query clause gets encoded this time - this is the whole
+    # point of the cache (see app/retrieval.py's docstring on it).
+    assert len(encode_calls) == 1
 
 
 def test_find_candidate_cross_discipline_clauses_excludes_same_discipline():

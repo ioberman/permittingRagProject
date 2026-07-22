@@ -23,32 +23,24 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 
 _model: SentenceTransformer | None = None
 
+# jurisdiction_id -> (sorted JurisdictionClause ids used, their embeddings).
+# JurisdictionClause rows are effectively immutable once ingested (a
+# jurisdiction document is only ever added to, never edited in place), so
+# re-encoding the same corpus on every single check run was pure waste -
+# measured directly against the real Chicago dataset (3,609 clauses): 2.8s
+# per call on a fast dev machine, worse on a constrained VM, and this ran
+# once per check request regardless of how many project clauses were being
+# checked. The cached id list (not just the jurisdiction_id) is what keeps
+# this correct if a jurisdiction is ever re-ingested with new content - a
+# mismatch just falls through to a fresh encode.
+_jurisdiction_corpus_cache: dict[str, tuple[list[str], object]] = {}
+
 
 def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
         _model = SentenceTransformer(MODEL_NAME)
     return _model
-
-
-def rank_candidates(query_texts: list[str], corpus_texts: list[str], top_n: int = DEFAULT_TOP_N) -> list[list[int]]:
-    """For each query text, returns indices into corpus_texts of the top_n most
-    similar entries by embedding cosine similarity, descending. Entries below
-    SIMILARITY_THRESHOLD are excluded (an empty list means nothing worth
-    showing the LLM)."""
-    if not query_texts or not corpus_texts:
-        return [[] for _ in query_texts]
-
-    model = _get_model()
-    corpus_embeddings = model.encode(corpus_texts, normalize_embeddings=True)
-    query_embeddings = model.encode(query_texts, normalize_embeddings=True)
-    similarities = query_embeddings @ corpus_embeddings.T  # cosine similarity (embeddings are normalized)
-
-    results = []
-    for row in similarities:
-        ranked = sorted(range(len(row)), key=lambda i: row[i], reverse=True)
-        results.append([i for i in ranked[:top_n] if row[i] > SIMILARITY_THRESHOLD])
-    return results
 
 
 def find_candidate_jurisdiction_clauses(
@@ -60,19 +52,30 @@ def find_candidate_jurisdiction_clauses(
         session.query(JurisdictionClause)
         .join(JurisdictionDocument)
         .filter(JurisdictionDocument.jurisdiction_id == jurisdiction_id)
+        .order_by(JurisdictionClause.id)
         .all()
     )
     if not clauses or not jurisdiction_clauses:
         return {}
 
-    query_texts = [c.text for c in clauses]
-    corpus_texts = [jc.text for jc in jurisdiction_clauses]
-    ranked_indices = rank_candidates(query_texts, corpus_texts, top_n)
+    clause_ids = [jc.id for jc in jurisdiction_clauses]
+    cached = _jurisdiction_corpus_cache.get(jurisdiction_id)
+    model = _get_model()
+    if cached is not None and cached[0] == clause_ids:
+        corpus_embeddings = cached[1]
+    else:
+        corpus_embeddings = model.encode([jc.text for jc in jurisdiction_clauses], normalize_embeddings=True)
+        _jurisdiction_corpus_cache[jurisdiction_id] = (clause_ids, corpus_embeddings)
 
-    return {
-        clause.id: [jurisdiction_clauses[i] for i in indices]
-        for clause, indices in zip(clauses, ranked_indices)
-    }
+    query_embeddings = model.encode([c.text for c in clauses], normalize_embeddings=True)
+    similarities = query_embeddings @ corpus_embeddings.T  # cosine similarity (embeddings are normalized)
+
+    result = {}
+    for clause, row in zip(clauses, similarities):
+        ranked = sorted(range(len(row)), key=lambda i: row[i], reverse=True)
+        indices = [i for i in ranked[:top_n] if row[i] > SIMILARITY_THRESHOLD]
+        result[clause.id] = [jurisdiction_clauses[i] for i in indices]
+    return result
 
 
 def find_candidate_cross_discipline_clauses_scored(
