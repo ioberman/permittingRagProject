@@ -1,10 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#3f5230"/>
-  <rect x="14" y="12" width="26" height="34" rx="2" fill="#f6f5f2"/>
-  <rect x="19" y="19" width="16" height="3" rx="1.5" fill="#3f5230"/>
-  <rect x="19" y="27" width="16" height="3" rx="1.5" fill="#3f5230"/>
-  <rect x="19" y="35" width="10" height="3" rx="1.5" fill="#3f5230"/>
-  <circle cx="45" cy="44" r="14" fill="#f6f5f2"/>
-  <circle cx="45" cy="44" r="14" fill="none" stroke="#3f5230" stroke-width="2.5"/>
-  <path d="M38.5 44.5l4.5 4.5 9-9.5" fill="none" stroke="#3f5230" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="64" height="64" rx="14" fill="#14293D"/>
+
+  <!-- back sheet, fanned slightly to suggest a plan set, not one page -->
+  <rect x="16" y="13" width="27" height="35" rx="2" fill="#9DB2C7" transform="rotate(-10 32 32)"/>
+
+  <!-- front sheet -->
+  <rect x="19" y="11" width="27" height="35" rx="2" fill="#F5F1E8"/>
+  <rect x="24" y="20" width="17" height="3" rx="1.5" fill="#14293D"/>
+  <rect x="24" y="28" width="11" height="3" rx="1.5" fill="#E08A4B"/>
+  <rect x="24" y="36" width="15" height="3" rx="1.5" fill="#14293D"/>
+
+  <!-- scan arc + ping: continuous re-check sweeping over the set -->
+  <path d="M40 8 A16 16 0 0 1 56 24" fill="none" stroke="#E08A4B" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="56" cy="24" r="3.2" fill="#E08A4B"/>
 </svg>
