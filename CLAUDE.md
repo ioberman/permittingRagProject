@@ -104,19 +104,19 @@ Live on a self-managed Oracle Cloud Always Free VM as of 2026-07-21 - see
 `docs/HOSTING.md` for the real, current setup (IP, systemd unit, nginx
 config, firewall rules) and `docs/DEPLOYMENT_ORACLE.md` for the
 from-scratch guide. Moved off Render after hitting real free-tier memory
-and request-timeout limits there (see `app/retrieval.py`'s history). There
-is a known, not-yet-root-caused open issue with the "check" endpoint
-hanging/timing out in the browser, most likely nginx's default 60s proxy
-timeout cutting off a request before gunicorn's own 120s timeout would -
-see the "Known issue" section of `docs/HOSTING.md` for the live debugging
-notes and likely fix.
+and request-timeout limits there (see `app/retrieval.py`'s history). The
+"check" endpoint hanging/504ing there is resolved - real root cause was
+`find_candidate_jurisdiction_clauses` re-encoding the entire jurisdiction
+corpus on every single check, uncached (fixed via `app/retrieval.py`'s
+`_jurisdiction_corpus_cache`), not the nginx/gunicorn timeout mismatch that
+looked like the obvious suspect at first - see `docs/HOSTING.md`'s
+"Resolved" section for the full story, since the actual root cause wasn't
+what it looked like on the surface.
 
 ## What's actually next
 Not prescriptive — ask before picking one, this is context for the
 conversation, not a queue. As of 2026-07-21, in rough order of what would
 most affect a real pilot:
-- The nginx/gunicorn timeout issue above - actively breaking real usage of
-  the live deployment, so probably first regardless of the rest of this list.
 - Real-document extraction quality on CAD-exported sheets — partially fixed
   (see `seed_data/real_projects/README.md`); still poor on pages where a
   sheet's title-block content overlaps the same column as body prose.

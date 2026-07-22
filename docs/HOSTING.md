@@ -115,38 +115,50 @@ No HTTPS/TLS is configured. Site is `http://` only, on port 80.
 If adding a new port (e.g. for HTTPS/443, or to temporarily expose 8000 for
 debugging), **both** layers need a matching rule or it won't be reachable.
 
-## Known issue as of this doc: "Check" endpoint hangs and times out
+## Resolved: "Check" endpoint hung and 504'd
 
-Symptom: triggering the conflict-detection "check" in the UI spins/loads
-indefinitely in the browser and eventually times out, even though the
-service itself stays "active (running)" in `systemctl status`.
+Symptom was: triggering the conflict-detection "check" in the UI
+spun/loaded indefinitely and eventually 504'd, even though the service
+itself stayed "active (running)" in `systemctl status`.
 
-Not yet root-caused, but worth checking, roughly in order of suspicion:
+**Root cause, found by process of elimination**: it reproduced with the
+`mock` engine (zero API calls) on a 2-clause project, which ruled out slow
+LLM calls entirely. `find_candidate_jurisdiction_clauses`
+(`app/retrieval.py`) runs before any engine-specific logic for every
+engine - mock, groq, real - and was re-encoding the **entire jurisdiction
+corpus from scratch on every single check**, uncached. Measured directly:
+San Diego County's real 614-clause corpus took 4.55s to re-embed on a fast
+x86 dev machine, every time, regardless of project size or engine. On this
+box's ARM CPU that's very plausibly tens of seconds to minutes - exactly
+"spins forever."
 
-1. **nginx's 60s default timeout vs. gunicorn's 120s `--timeout`.** If a
-   check legitimately takes longer than 60s (looping LLM calls per clause
-   via `app/llm.py` / `app/llm_groq.py`), nginx will return a 504 and drop
-   the connection well before gunicorn/the app actually finishes or times
-   out - this would look exactly like "loads forever then times out."
-   Likely fix: add `proxy_read_timeout 120s;` and `proxy_send_timeout 120s;`
-   inside the `location /` block, then `sudo systemctl restart nginx`.
-2. **Single sync worker.** Only one request is served at a time. If the
-   check endpoint makes many sequential LLM calls (one per clause /
-   candidate set, per `app/conflict_detection.py` and
-   `app/cross_discipline_detection.py`), the whole thing runs serially
-   inside that one worker with no concurrency - a check over many clauses
-   could legitimately take minutes. Worth timing how long a check takes
-   directly against gunicorn (bypass nginx, curl `127.0.0.1:8000` with the
-   actual check route) to isolate proxy-layer timeout vs. genuine slowness.
-3. **This app was moved from a lightweight Render deploy (which used
-   `sentence-transformers`/torch and hit memory limits) to this heavier
-   Oracle box specifically to allow real compute** - that decision was
-   deliberate, not a bug, so "it's using torch/full transformers" is
-   expected here, not something to revert.
-4. Check `sudo journalctl -u permitting -f` while triggering a check from
-   the browser - this shows exactly what the app is doing (or stuck on) in
-   real time, including any exception it may eventually throw once
-   gunicorn's own 120s timeout is hit.
+**Fix**: `JurisdictionClause` rows are effectively immutable once ingested
+(a jurisdiction is only ever added to, not edited in place), so this work
+never needed to be redone. The corpus embeddings are now cached per
+`jurisdiction_id` in `app/retrieval.py` (`_jurisdiction_corpus_cache`),
+invalidated automatically if the jurisdiction's clause set ever actually
+changes. Verified: 4.55s -> 0.022s on the second call, and end-to-end
+against the exact reported scenario (mock engine, San Diego project) -
+first request 1.79s (cold model load), second 0.095s, both clean instead
+of hanging.
+
+If a check is still slow after pulling this fix, the two secondary factors
+below are still real, just smaller:
+
+1. **Single sync worker** means only one request is served at a time, and
+   any real (`groq`/`real`) check still makes one LLM call per clause,
+   serially - a project with many clauses can legitimately take a while.
+   This is a deliberate tradeoff (see `AUTO_SEED_ON_START`'s race-condition
+   reasoning for why more workers isn't a free win) rather than a bug to
+   silently work around.
+2. nginx's default 60s proxy timeout is still shorter than gunicorn's
+   `--timeout 120` - worth adding `proxy_read_timeout 120s;` /
+   `proxy_send_timeout 120s;` to the `location /` block as a safety margin
+   regardless, now that the dominant cost (uncached retrieval) is gone.
+
+`sudo journalctl -u permitting -f` while triggering a check from the
+browser still shows exactly what the app is doing in real time if anything
+looks slow again.
 
 ## Common ops commands
 
