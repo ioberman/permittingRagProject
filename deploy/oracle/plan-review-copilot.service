@@ -1,0 +1,45 @@
+[Unit]
+Description=Plan Review Copilot (gunicorn)
+After=network.target
+
+[Service]
+# A dedicated, non-login system user - never run the app as root. Create it
+# with: sudo useradd --system --home /opt/plan-review-copilot --shell /usr/sbin/nologin planreview
+User=planreview
+Group=planreview
+
+WorkingDirectory=/opt/plan-review-copilot
+EnvironmentFile=/opt/plan-review-copilot/.env
+
+# Binds to 8000, not 80 - ports below 1024 need CAP_NET_BIND_SERVICE or root,
+# which we're deliberately avoiding for a non-root service. Point Oracle's
+# firewall rules and the VM's own ufw/iptables at 8000 (see the deployment
+# guide) rather than trying to bind gunicorn to 80 directly. If you add
+# nginx later as a reverse proxy, nginx is what listens on 80/443 instead -
+# gunicorn stays on 8000 either way.
+#
+# --workers 1, deliberately: AUTO_SEED_ON_START spawns a background thread
+# per worker process at boot. Render forced a single worker
+# (WEB_CONCURRENCY=1) so this race never came up there; with more than one
+# worker here, two processes would seed the same empty database at once on
+# first boot, and idempotency's "already loaded" check happening before
+# either commits means they could still collide. If you need more
+# concurrency later, guard AUTO_SEED_ON_START with a real lock (a lockfile
+# or a DB-level advisory lock) rather than just raising this number.
+ExecStart=/opt/plan-review-copilot/.venv/bin/gunicorn app.web:app \
+    --bind 0.0.0.0:8000 \
+    --timeout 120 \
+    --workers 1
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening - reasonable defaults for a small single-purpose service. Loosen
+# ReadWritePaths if STORAGE_ROOT or your SQLite file live somewhere else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/plan-review-copilot
+
+[Install]
+WantedBy=multi-user.target
