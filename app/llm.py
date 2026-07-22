@@ -87,7 +87,11 @@ REPORT_CROSS_DISCIPLINE_CONFLICTS_TOOL = {
     "strict": True,
 }
 
-client = anthropic.Anthropic()
+# max_retries=0: the SDK's default retry/backoff on a 429 can sleep for a
+# while per attempt, which multiplies badly with run_check's thread pool -
+# fail fast instead and let the UI surface the rate limit clearly rather
+# than the check appearing to hang (see app/llm_groq.py's _get_client).
+client = anthropic.Anthropic(max_retries=0)
 
 
 def _build_prompt(clause: Clause, candidates: list[JurisdictionClause]) -> str:

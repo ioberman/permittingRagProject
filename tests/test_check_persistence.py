@@ -1,7 +1,11 @@
-from app.check_persistence import current_documents_for_project, current_project_clauses, diff_between_submissions
+import time
+
+import pytest
+
+from app.check_persistence import current_documents_for_project, current_project_clauses, diff_between_submissions, run_check
 from app.clause_extraction import extract_and_store_clauses
 from app.ingest import create_submission, get_or_create_project, ingest_document
-from app.models import Discipline, DocType
+from app.models import CheckType, Discipline, DocType
 
 
 def test_current_documents_for_project_carries_forward_unrevised_sheets(session, storage, jurisdiction):
@@ -97,3 +101,54 @@ def test_diff_between_submissions_finds_added_removed_and_skips_unchanged(sessio
     assert by_sheet["E-101"]["is_new_sheet"]
     assert len(by_sheet["E-101"]["added"]) == 1
     assert by_sheet["E-101"]["removed"] == []
+
+
+class _FakeClause:
+    """run_check only ever touches clause.id before the concurrent detect_fn
+    calls - real Clause rows aren't needed to exercise its executor logic."""
+
+    def __init__(self, clause_id):
+        self.id = clause_id
+
+
+class _FakeRateLimitError(Exception):
+    status_code = 429
+
+
+def test_run_check_fails_fast_on_error_instead_of_waiting_for_every_other_call(session, jurisdiction):
+    """Regression test for a real production symptom: a rate-limited engine
+    made a check look like it hung forever. The old `with ThreadPoolExecutor
+    as executor:` block's __exit__ calls shutdown(wait=True), which blocks
+    until every queued clause - including ones that hadn't even started yet -
+    finishes its own (possibly slow) call, even after the first failure is
+    already known. run_check now cancels anything not yet started and returns
+    as soon as the first error is seen, instead of waiting for stragglers."""
+    project = get_or_create_project(session, "Rate Limit Test Project", jurisdiction.id)
+    submission = create_submission(session, project.id)
+    session.commit()
+
+    clauses = [_FakeClause(f"clause-{i}") for i in range(20)]
+
+    def slow_or_raising_detect_fn(clause, candidates):
+        if clause.id == "clause-0":
+            raise _FakeRateLimitError("rate limited")
+        time.sleep(2)  # simulates a real call plus SDK retry/backoff
+        return [], None
+
+    start = time.monotonic()
+    with pytest.raises(_FakeRateLimitError):
+        run_check(
+            session,
+            submission,
+            engine_name="mock",
+            check_type=CheckType.JURISDICTION,
+            clauses=clauses,
+            candidates_by_clause={},
+            detect_fn=slow_or_raising_detect_fn,
+            citation_field="jurisdiction_clause_id",
+        )
+    elapsed = time.monotonic() - start
+
+    # Well under the 2s a single slow call takes, let alone the 2s+ each
+    # straggler would add if run_check waited for all 20 of them.
+    assert elapsed < 1.0

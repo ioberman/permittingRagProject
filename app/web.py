@@ -122,8 +122,22 @@ def _finish_check_tracking(project_id: str, check_type_value: str, error: str | 
         _running_checks.discard((project_id, check_type_value))
         if error:
             _check_errors[(project_id, check_type_value)] = error
-        else:
-            _check_errors.pop((project_id, check_type_value), None)
+
+
+def _describe_check_error(e: Exception, label: str) -> str:
+    """Both the anthropic and groq SDKs raise an APIStatusError subclass with a
+    .status_code attribute on a non-2xx response - duck-typed here rather than
+    importing either SDK, so this works for whichever engine actually failed.
+    A 429 specifically means "this engine's rate limit/quota is tapped out",
+    which is common enough on Groq's free tier to deserve its own message
+    instead of a raw exception dump."""
+    if getattr(e, "status_code", None) == 429:
+        return (
+            "This engine's rate limit or daily quota has been reached. Wait a "
+            "while and try again, or switch to a different engine (e.g. mock "
+            "or preview) in the meantime."
+        )
+    return f"{label}: {' '.join(str(e).split())}"
 
 
 def _warm_embedding_model():
@@ -546,8 +560,9 @@ def check(project_id):
             _finish_check_tracking(project_id, CheckType.JURISDICTION.value)
         except Exception as e:
             bg_session.rollback()
-            message = " ".join(str(e).split())
-            _finish_check_tracking(project_id, CheckType.JURISDICTION.value, error=f"Check failed: {message}")
+            _finish_check_tracking(
+                project_id, CheckType.JURISDICTION.value, error=_describe_check_error(e, "Check failed")
+            )
         finally:
             bg_session.close()
 
@@ -602,9 +617,10 @@ def check_cross_discipline(project_id):
             _finish_check_tracking(project_id, CheckType.CROSS_DISCIPLINE.value)
         except Exception as e:
             bg_session.rollback()
-            message = " ".join(str(e).split())
             _finish_check_tracking(
-                project_id, CheckType.CROSS_DISCIPLINE.value, error=f"Cross-discipline check failed: {message}"
+                project_id,
+                CheckType.CROSS_DISCIPLINE.value,
+                error=_describe_check_error(e, "Cross-discipline check failed"),
             )
         finally:
             bg_session.close()

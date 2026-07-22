@@ -183,6 +183,20 @@ def test_check_mock_engine_runs_without_error(client, project_id):
     assert flags_page.status_code == 200
 
 
+def test_describe_check_error_recognizes_rate_limit_status_code():
+    class _FakeRateLimitError(Exception):
+        status_code = 429
+
+    message = web_module._describe_check_error(_FakeRateLimitError("nope"), "Check failed")
+    assert "rate limit" in message.lower() or "quota" in message.lower()
+    assert "Check failed" not in message  # friendly message replaces the generic wrapper, doesn't just prefix it
+
+
+def test_describe_check_error_falls_back_to_generic_message_for_other_errors():
+    message = web_module._describe_check_error(ValueError("boom"), "Check failed")
+    assert message == "Check failed: boom"
+
+
 def test_check_cross_discipline_preview_shows_candidates(client, project_id):
     resp = client.post(
         f"/projects/{project_id}/check-cross-discipline",

@@ -105,7 +105,12 @@ def _get_client() -> Groq:
     ever use the mock or Claude engine."""
     global _client
     if _client is None:
-        _client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        # max_retries=0: the SDK's default retry/backoff on a 429 can sleep up to
+        # 60s per attempt (see groq._base_client._calculate_retry_timeout), which
+        # multiplies badly with run_check's thread pool - fail fast instead and
+        # let the UI surface the rate limit clearly rather than the check
+        # appearing to hang.
+        _client = Groq(api_key=os.environ.get("GROQ_API_KEY"), max_retries=0)
     return _client
 
 

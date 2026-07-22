@@ -269,14 +269,26 @@ def run_check(
     to_process = [c for c in clauses if c.id not in already_checked]
 
     detections: dict[str, tuple[list, object]] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_LLM_CALLS) as executor:
-        future_to_clause_id = {
-            executor.submit(detect_fn, clause, candidates_by_clause.get(clause.id, [])): clause.id
-            for clause in to_process
-        }
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_LLM_CALLS)
+    future_to_clause_id = {
+        executor.submit(detect_fn, clause, candidates_by_clause.get(clause.id, [])): clause.id
+        for clause in to_process
+    }
+    try:
         for future in concurrent.futures.as_completed(future_to_clause_id):
             clause_id = future_to_clause_id[future]
             detections[clause_id] = future.result()  # re-raises here if detect_fn raised, same as the old serial loop
+    except BaseException:
+        # A `with ThreadPoolExecutor(...)` block's __exit__ calls shutdown(wait=True),
+        # which would sit here waiting for every other still-queued clause to
+        # exhaust its own retries too (e.g. a rate limit that's about to hit every
+        # remaining call) before the error above ever reaches the caller - exactly
+        # what made a rate-limited check look like it was hanging forever instead
+        # of failing fast. cancel_futures drops anything not yet started; whatever
+        # was already mid-flight just finishes in the background, unobserved.
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    executor.shutdown(wait=False)
 
     for clause in to_process:
         results, call_record = detections[clause.id]
