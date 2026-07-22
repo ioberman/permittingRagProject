@@ -15,6 +15,8 @@ in a few places (see the note at the top of that file).
 - **OS**: Ubuntu 24.04 LTS
 - **Region**: US West (Phoenix), availability domain AD-3
 - **Public IP**: `161.153.54.246`
+- **Domain**: `permitting.dev` (registered at Namecheap, DNS also managed
+  there - `A` records for `@` and `www` both point at the public IP above)
 - **SSH user**: `ubuntu`
 - **SSH access**: `ssh -i ~/.ssh/oracle_cloud ubuntu@161.153.54.246`
   (private key lives only on the developer's laptop, not in the repo or on
@@ -43,7 +45,7 @@ the app is running on local SQLite, not Postgres.
 Not run manually / not run via `flask run`. It's wired up as two
 systemd-managed services sitting behind each other:
 
-**Internet → nginx (port 80) → gunicorn (127.0.0.1:8000) → Flask app**
+**Internet → nginx (ports 80/443) → gunicorn (127.0.0.1:8000) → Flask app**
 
 ### 1. gunicorn, managed by systemd
 
@@ -79,10 +81,14 @@ WantedBy=multi-user.target
 Config: `/etc/nginx/sites-available/permitting` (symlinked into
 `sites-enabled/`; the default site was removed)
 
+TLS is handled by **certbot** (Let's Encrypt), which auto-edited this file
+in place when it was run (`sudo certbot --nginx -d permitting.dev -d
+www.permitting.dev`) - the block below is what certbot produced, not
+hand-written:
+
 ```nginx
 server {
-    listen 80;
-    server_name _;
+    server_name permitting.dev www.permitting.dev;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -91,29 +97,51 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    listen 443 ssl;
+    ssl_certificate /etc/letsencrypt/live/permitting.dev/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/permitting.dev/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparam.pem;
+}
+
+server {
+    if ($host = www.permitting.dev) {
+        return 301 https://$host$request_uri;
+    }
+    if ($host = permitting.dev) {
+        return 301 https://$host$request_uri;
+    }
+
+    listen 80;
+    server_name permitting.dev www.permitting.dev;
+    return 404;
 }
 ```
 
 No `proxy_read_timeout` / `proxy_send_timeout` is set here, so nginx uses
 its **default of 60 seconds** on those. This is shorter than gunicorn's
-`--timeout 120`. See "Known issue" below - this mismatch is the prime
-suspect.
+`--timeout 120`. See "Resolved" section below for why this mismatch turned
+out not to be the real bottleneck - still worth adding
+`proxy_read_timeout 120s;` / `proxy_send_timeout 120s;` as a safety margin.
 
-No HTTPS/TLS is configured. Site is `http://` only, on port 80.
+The cert renews automatically via a systemd timer certbot installs
+(`certbot.timer`) - no manual action needed. `sudo certbot renew --dry-run`
+tests that renewal will work without waiting for the real 90-day expiry.
 
 ## Firewall (two independent layers - both must allow a port)
 
 1. **OCI Security List** (`permitting-vcn` - Default Security List) -
-   ingress rules currently allow: TCP 22 (SSH), TCP 80 (web), plus default
-   ICMP rules. Port 8000 is NOT exposed here (intentionally - only nginx
-   should be reachable, not gunicorn directly).
+   ingress rules currently allow: TCP 22 (SSH), TCP 80 (web), TCP 443
+   (HTTPS), plus default ICMP rules. Port 8000 is NOT exposed here
+   (intentionally - only nginx should be reachable, not gunicorn directly).
 2. **iptables on the instance itself** (Oracle's Ubuntu images ship
    restrictive by default) - currently allows established connections, TCP
-   22, and TCP 80, with a REJECT catch-all after. Rules were persisted with
-   `iptables-persistent` so they survive reboot.
+   22, TCP 80, and TCP 443, with a REJECT catch-all after. Rules were
+   persisted with `iptables-persistent` so they survive reboot.
 
-If adding a new port (e.g. for HTTPS/443, or to temporarily expose 8000 for
-debugging), **both** layers need a matching rule or it won't be reachable.
+If adding a new port, **both** layers need a matching rule or it won't be
+reachable.
 
 ## Resolved: "Check" endpoint hung and 504'd
 
