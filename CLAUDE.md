@@ -100,18 +100,25 @@ where things stand now.
    for current precision/recall numbers).
 
 ## Hosting
-Live on a self-managed Oracle Cloud Always Free VM as of 2026-07-21 - see
-`docs/HOSTING.md` for the real, current setup (IP, systemd unit, nginx
-config, firewall rules) and `docs/DEPLOYMENT_ORACLE.md` for the
-from-scratch guide. Moved off Render after hitting real free-tier memory
-and request-timeout limits there (see `app/retrieval.py`'s history). The
-"check" endpoint hanging/504ing there is resolved - real root cause was
-`find_candidate_jurisdiction_clauses` re-encoding the entire jurisdiction
-corpus on every single check, uncached (fixed via `app/retrieval.py`'s
-`_jurisdiction_corpus_cache`), not the nginx/gunicorn timeout mismatch that
-looked like the obvious suspect at first - see `docs/HOSTING.md`'s
-"Resolved" section for the full story, since the actual root cause wasn't
-what it looked like on the surface.
+Live at `https://permitting.dev` (a self-managed Oracle Cloud Always Free
+VM, domain on Namecheap DNS, HTTPS via Let's Encrypt/certbot) as of
+2026-07-21 - see `docs/HOSTING.md` for the real, current setup (IP, systemd
+unit, nginx config incl. the certbot-managed TLS block, firewall rules) and
+`docs/DEPLOYMENT_ORACLE.md` for the from-scratch guide. Moved off Render
+after hitting real free-tier memory and request-timeout limits there (see
+`app/retrieval.py`'s history). The "check" endpoint hanging/504ing there is
+resolved - real root cause was `find_candidate_jurisdiction_clauses`
+re-encoding the entire jurisdiction corpus on every single check, uncached
+(fixed via `app/retrieval.py`'s `_jurisdiction_corpus_cache`), not the
+nginx/gunicorn timeout mismatch that looked like the obvious suspect at
+first - see `docs/HOSTING.md`'s "Resolved" section for the full story,
+since the actual root cause wasn't what it looked like on the surface. On
+top of that fix, `run_check` (`app/check_persistence.py`) now fires its
+per-clause LLM calls through a thread pool instead of serially, and the
+check/check-cross-discipline routes (`app/web.py`) run in a background
+thread and return immediately rather than blocking the request for the
+full check duration - the project page polls a `/check-status` endpoint
+and shows progress instead of the browser just hanging.
 
 ## What's actually next
 Not prescriptive — ask before picking one, this is context for the

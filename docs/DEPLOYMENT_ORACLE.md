@@ -184,16 +184,19 @@ sudo systemctl restart plan-review-copilot
 hand someone, and browsers will flag it as insecure. To get a real
 `https://` link:
 
-1. Point a domain (or free subdomain from a service like DuckDNS) at the
-   VM's public IP.
+1. Buy a domain (a cheap flat-renewal TLD like `.com` or `.dev` - avoid
+   promo TLDs like `.xyz`/`.online` that jump in price at renewal) and
+   point its DNS `A` record(s) at the VM's public IP.
 2. `sudo apt install -y nginx certbot python3-certbot-nginx`
-3. Configure nginx as a reverse proxy from port 80/443 to `127.0.0.1:8000`,
-   then `sudo certbot --nginx` to get and auto-renew a Let's Encrypt
-   certificate.
+3. Configure nginx as a reverse proxy from port 80 to `127.0.0.1:8000`,
+   then `sudo certbot --nginx -d yourdomain.com` to get a Let's Encrypt
+   certificate - certbot edits the nginx config in place to add the TLS
+   block and an HTTP->HTTPS redirect, and sets up auto-renewal on its own.
 4. Open ports 80 and 443 in both firewalls (same two-layer gotcha as
    step 2), and you can close port 8000 to the outside world entirely once
    nginx is the only public entry point.
 
 This is a genuinely separate chunk of work from getting the app running at
 all - worth doing once the base setup above is confirmed working, not
-before.
+before. This is actually done on the live instance now (`permitting.dev`)
+- see `docs/HOSTING.md` for the real, current nginx config this produced.

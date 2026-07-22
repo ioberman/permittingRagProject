@@ -42,14 +42,17 @@ SQLite+Disk path, skip step 2 and set `DATABASE_URL` to
 `sqlite:////var/data/permitting.db` (four slashes - absolute path into the
 disk mount from step 5) instead.
 
-**2. Instance size.** Retrieval (`app/retrieval.py`) runs on `fastembed`
-(ONNX Runtime), not `sentence-transformers`/PyTorch - switched after a real
-512MB deploy was OOM-killed before it could even bind a port, running the
-torch-based version, even with the CPU-only wheel (torch alone is 500MB+
-installed). fastembed's full dependency tree is under 200MB with no torch at
-all, so a smaller instance should now be viable - not yet confirmed on
-Render itself as of this writing, so still worth watching the deploy log the
-first time rather than assuming it fits.
+**2. Instance size.** At the time this guide was written, retrieval
+(`app/retrieval.py`) ran on `fastembed` (ONNX Runtime) instead of
+`sentence-transformers`/PyTorch, specifically to fit a 512MB free-tier
+host - a real deploy at that size was OOM-killed before it could even bind
+a port on the torch-based version, even with the CPU-only wheel (torch
+alone is 500MB+ installed). **That swap has since been reverted** - the
+app moved to Oracle (real RAM, see `docs/HOSTING.md`) and
+`app/retrieval.py` is back on `sentence-transformers`, the more mature
+library, per `CLAUDE.md`'s architecture notes. If you're reviving this
+Render path on a small instance, you'd want to re-apply the fastembed swap
+yourself; don't assume the current code fits a 512MB host as-is.
 
 ## 1. Push to GitHub
 

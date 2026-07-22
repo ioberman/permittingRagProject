@@ -16,11 +16,12 @@ services:
   - type: web
     name: plan-review-copilot
     runtime: python
-    plan: starter # retrieval runs on fastembed (ONNX Runtime), not sentence-transformers/torch -
-    # confirmed via a live 512MB deploy that the torch-based version genuinely didn't fit even
-    # with the GPU packages stripped out (see docs/DEPLOYMENT.md); fastembed's full dependency
-    # tree is under 200MB installed, no torch at all, so this may now run on a smaller plan than
-    # "starter" - not yet confirmed on Render itself, downsize and test if that matters to you.
+    plan: starter # NOTE: this blueprint is inactive/archival - the app now runs on Oracle
+    # (docs/HOSTING.md), not Render. At the time this was written, retrieval ran on fastembed
+    # (ONNX Runtime) instead of sentence-transformers/torch specifically to fit a 512MB Render
+    # instance (see docs/DEPLOYMENT.md); that swap has since been reverted back to
+    # sentence-transformers. If you revive this Render path, re-apply the fastembed swap
+    # yourself first - the current code does not fit a small Render instance as-is.
     buildCommand: pip install -r requirements.txt
     # --timeout 120: gunicorn's default (30s) killed a real request on Render's
     # free-tier CPU - the document network graph's first hit of fastembed
