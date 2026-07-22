@@ -130,6 +130,47 @@ def test_ingest_two_disciplines(client, project_id):
     assert b"M-101" in detail.data
 
 
+def _new_project(client, jurisdiction_id, name):
+    # Isolated from the module-scoped `project_id` fixture other tests
+    # share/depend on the exact contents of - these tests ingest their own
+    # sheets and would otherwise pollute that shared state.
+    resp = client.post("/projects", data={"project_name": name, "jurisdiction_id": jurisdiction_id}, follow_redirects=False)
+    assert resp.status_code == 302
+    return resp.headers["Location"].rstrip("/").rsplit("/", 1)[-1]
+
+
+def test_project_page_shows_batch_upload_form_by_default(client, jurisdiction_id):
+    project_id = _new_project(client, jurisdiction_id, "Batch UI Test Project")
+    detail = client.get(f"/projects/{project_id}")
+    assert detail.status_code == 200
+    assert b'id="batch_files"' in detail.data
+    assert b'multiple' in detail.data
+    assert b'id="ingest_file"' not in detail.data  # single-file form only renders while revising
+
+
+def test_revise_document_shows_single_file_prefilled_form(client, jurisdiction_id):
+    project_id = _new_project(client, jurisdiction_id, "Revise UI Test Project")
+    resp1 = _ingest(client, project_id, "R-101", "architectural", "Roof Plan", SPEC_TEXT)
+    assert resp1.status_code == 302
+
+    from app.db import get_session
+    from app.models import Document, DocumentSeries
+
+    s = get_session()
+    series = s.query(DocumentSeries).filter_by(project_id=project_id, sheet_number="R-101").one()
+    document = s.query(Document).filter_by(document_series_id=series.id).one()
+
+    revise_resp = client.post(f"/documents/{document.id}/revise")
+    assert revise_resp.status_code == 302
+    assert "revise_sheet=R-101" in revise_resp.headers["Location"]
+
+    follow = client.get(revise_resp.headers["Location"])
+    assert follow.status_code == 200
+    assert b"Revising" in follow.data
+    assert b'id="ingest_file"' in follow.data  # single-file form, not the batch UI
+    assert b'value="R-101"' in follow.data
+
+
 def test_ingest_duplicate_sheet_number_in_same_revision_is_a_friendly_error(client, project_id):
     # Document has a (document_series_id, submission_id) unique constraint -
     # one version of a sheet per revision, by design. Uploading the same

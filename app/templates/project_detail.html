@@ -128,11 +128,10 @@
 {% endif %}
 
 <details class="collapsible-form" open id="add-sheet-section">
-  <summary>Add a sheet</summary>
+  <summary>Add a sheet{{ 's' if not revising }}</summary>
+  {% if revising %}
   <form method="post" action="/projects/{{ project.id }}/ingest" enctype="multipart/form-data" class="form-body">
-    {% if revising %}
     <p class="info full">Revising <strong>{{ prefill_sheet_number }}</strong> as a new revision - pick the updated file below.</p>
-    {% endif %}
     <label>Sheet number
       <input id="sheet_number" name="sheet_number" value="{{ prefill_sheet_number }}" required>
     </label>
@@ -149,6 +148,18 @@
     </label>
     <div class="full"><button type="submit">Ingest</button></div>
   </form>
+  {% else %}
+  <div class="form-body" id="batch-upload-body">
+    <label class="full">Files <span class="meta">(select one or more - PDF or Word; sheet number/title are auto-filled per file, just confirm discipline)</span>
+      <input type="file" id="batch_files" multiple>
+    </label>
+    <div class="full" id="batch-rows"></div>
+    <div class="full" id="batch-actions" hidden>
+      <button type="button" id="batch-submit-btn" onclick="submitBatch()">Ingest <span id="batch-count"></span> sheet(s)</button>
+      <span class="check-status-msg" id="batch-status"></span>
+    </div>
+  </div>
+  {% endif %}
 </details>
 
 <h2>Revision history</h2>
@@ -259,6 +270,147 @@
     autofillFromExistingSheet();
   }
 
+  // Multi-file upload: one row per selected file (sheet number/title
+  // auto-filled the same way as the single-file path, discipline guessed
+  // from the sheet number's letter prefix), then ingested one at a time
+  // against the existing single-file /ingest endpoint - it already groups
+  // sequential uploads into the same submission/revision (see
+  // get_latest_or_create_submission's docstring), so no new batch endpoint
+  // is needed. Sequential, not parallel, so each row's own duplicate-sheet
+  // check runs against the state the previous row's upload just committed.
+  const DISCIPLINES = {{ disciplines|tojson }};
+  const DISCIPLINE_PREFIXES = {
+    A: 'architectural', S: 'structural', M: 'mechanical', E: 'electrical',
+    P: 'plumbing', C: 'civil', FP: 'fire_protection', T: 'low_voltage', LV: 'low_voltage',
+  };
+  function guessDisciplineFromSheetNumber(sheetNumber) {
+    const prefix = (sheetNumber.match(/^[A-Za-z]+/) || [''])[0].toUpperCase();
+    return DISCIPLINE_PREFIXES[prefix] || DISCIPLINES[0];
+  }
+
+  let batchFiles = [];
+
+  function disciplineOptionsHtml(selected) {
+    return DISCIPLINES.map((d) =>
+      `<option value="${d}" ${d === selected ? 'selected' : ''}>${d}</option>`
+    ).join('');
+  }
+
+  function buildBatchRow(entry, i) {
+    const row = document.createElement('div');
+    row.className = 'batch-row';
+    row.dataset.index = i;
+    row.innerHTML = `
+      <div class="batch-row-header">
+        <div class="batch-row-filename">${entry.file.name}</div>
+        <button type="button" class="btn ghost sm batch-remove">Remove</button>
+      </div>
+      <div class="batch-row-fields">
+        <label>Sheet number <input class="batch-sheet-number" value="${entry.sheetNumber}" required></label>
+        <label>Discipline <select class="batch-discipline">${disciplineOptionsHtml(entry.discipline)}</select></label>
+        <label>Title <input class="batch-title" value="${entry.title}" required></label>
+      </div>
+      <span class="batch-row-status"></span>
+    `;
+    row.querySelector('.batch-remove').addEventListener('click', () => {
+      batchFiles.splice(i, 1);
+      renderBatchRows();
+    });
+    row.querySelector('.batch-sheet-number').addEventListener('input', (e) => { entry.sheetNumber = e.target.value; });
+    row.querySelector('.batch-discipline').addEventListener('change', (e) => { entry.discipline = e.target.value; });
+    row.querySelector('.batch-title').addEventListener('input', (e) => { entry.title = e.target.value; });
+    return row;
+  }
+
+  function renderBatchRows() {
+    const rowsContainer = document.getElementById('batch-rows');
+    rowsContainer.innerHTML = '';
+    document.getElementById('batch-actions').hidden = batchFiles.length === 0;
+    document.getElementById('batch-count').textContent = batchFiles.length;
+    batchFiles.forEach((entry, i) => rowsContainer.appendChild(buildBatchRow(entry, i)));
+  }
+
+  function onBatchFilesChosen() {
+    const input = document.getElementById('batch_files');
+    batchFiles = Array.from(input.files).map((file) => ({ file, sheetNumber: '', title: '', discipline: DISCIPLINES[0] }));
+    renderBatchRows();
+
+    // Sniff each file's sheet number/title (read-only, doesn't touch the
+    // database) and fill in its row once it resolves - in parallel, since
+    // these are independent GETs-in-spirit with no shared state to race on.
+    batchFiles.forEach(async (entry, i) => {
+      const formData = new FormData();
+      formData.append('file', entry.file);
+      const res = await fetch('/sheet-info-from-file', { method: 'POST', body: formData });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (batchFiles[i] !== entry) return;  // this row was removed/reindexed while the request was in flight
+
+      if (data.sheet_number) {
+        entry.sheetNumber = data.sheet_number;
+        entry.discipline = guessDisciplineFromSheetNumber(data.sheet_number);
+      }
+      if (data.title) entry.title = data.title;
+
+      const row = document.querySelector(`#batch-rows .batch-row[data-index="${i}"]`);
+      if (!row) return;
+      if (data.sheet_number) {
+        const sheetInput = row.querySelector('.batch-sheet-number');
+        sheetInput.value = entry.sheetNumber;
+        sheetInput.classList.add('autofilled');
+        const disciplineSelect = row.querySelector('.batch-discipline');
+        disciplineSelect.value = entry.discipline;
+        disciplineSelect.classList.add('autofilled');
+      }
+      if (data.title) {
+        const titleInput = row.querySelector('.batch-title');
+        titleInput.value = entry.title;
+        titleInput.classList.add('autofilled');
+      }
+    });
+  }
+
+  async function submitBatch() {
+    const submitBtn = document.getElementById('batch-submit-btn');
+    const overallStatus = document.getElementById('batch-status');
+    submitBtn.disabled = true;
+    let successCount = 0;
+
+    for (let i = 0; i < batchFiles.length; i++) {
+      const entry = batchFiles[i];
+      const row = document.querySelector(`#batch-rows .batch-row[data-index="${i}"]`);
+      const statusEl = row ? row.querySelector('.batch-row-status') : null;
+      if (statusEl) { statusEl.textContent = 'Uploading…'; statusEl.className = 'batch-row-status running'; }
+
+      const formData = new FormData();
+      formData.append('sheet_number', entry.sheetNumber);
+      formData.append('discipline', entry.discipline);
+      formData.append('title', entry.title);
+      formData.append('file', entry.file);
+
+      const res = await fetch(`/projects/${PROJECT_ID}/ingest`, { method: 'POST', body: formData });
+      const failed = new URL(res.url).searchParams.get('error');
+      if (statusEl) {
+        if (failed) {
+          statusEl.textContent = failed;
+          statusEl.className = 'batch-row-status error';
+        } else {
+          statusEl.textContent = 'Ingested';
+          statusEl.className = 'batch-row-status success';
+          successCount++;
+        }
+      } else if (!failed) {
+        successCount++;
+      }
+    }
+
+    overallStatus.textContent = `${successCount} of ${batchFiles.length} sheet(s) ingested.`;
+    submitBtn.disabled = false;
+    if (successCount > 0) {
+      setTimeout(() => { window.location.reload(); }, 1200);
+    }
+  }
+
   // Checks run in a background thread server-side now (see app/web.py) -
   // a real check can legitimately take a minute or more (sequential LLM
   // calls, even parallelized), which used to mean the request just sat
@@ -313,8 +465,15 @@
       }
     }
   });
-  document.getElementById('sheet_number').addEventListener('blur', autofillFromExistingSheet);
-  document.getElementById('ingest_file').addEventListener('change', autofillFromFile);
+  // sheet_number/ingest_file only exist in the single-file "revising" form -
+  // the general "add sheets" path below uses batch_files/#batch-rows instead.
+  const revisingSheetNumberInput = document.getElementById('sheet_number');
+  if (revisingSheetNumberInput) revisingSheetNumberInput.addEventListener('blur', autofillFromExistingSheet);
+  const revisingFileInput = document.getElementById('ingest_file');
+  if (revisingFileInput) revisingFileInput.addEventListener('change', autofillFromFile);
+
+  const batchFilesInput = document.getElementById('batch_files');
+  if (batchFilesInput) batchFilesInput.addEventListener('change', onBatchFilesChosen);
 </script>
 
 <script>
