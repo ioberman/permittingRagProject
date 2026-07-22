@@ -7,45 +7,28 @@ rather than TF-IDF: real semantic similarity instead of keyword overlap,
 while keeping the "runnable without credentials" property the rest of this
 project has (see app/llm_mock.py).
 
-Runs on fastembed (ONNX Runtime) rather than sentence-transformers (PyTorch):
-same model weights (sentence-transformers/all-MiniLM-L6-v2), same 384-dim
-unit-normalized output - verified directly that cosine similarities between
-the two libraries match to the 6th decimal place on real clause text from
-this app, so SIMILARITY_THRESHOLD needed no recalibration. The entire point
-is footprint: PyTorch CPU alone is 500MB+ installed and was the reason this
-app couldn't run in a 512MB deploy target; fastembed's full dependency tree
-(onnxruntime + tokenizers, no torch/scikit-learn/scipy) is under 200MB.
-
 SIMILARITY_THRESHOLD is calibrated empirically, not arbitrary: unrelated
 clause pairs (different topic entirely) score ~0.13-0.15 cosine similarity
 with this model; genuinely related pairs score 0.3+. 0.2 sits in the gap.
 """
 
-import numpy as np
-from fastembed import TextEmbedding
+from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 
 from app.models import Clause, JurisdictionClause, JurisdictionDocument
 
 DEFAULT_TOP_N = 5
 SIMILARITY_THRESHOLD = 0.2
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+MODEL_NAME = "all-MiniLM-L6-v2"
 
-_model: TextEmbedding | None = None
+_model: SentenceTransformer | None = None
 
 
-def _get_model() -> TextEmbedding:
+def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
-        _model = TextEmbedding(model_name=MODEL_NAME)
+        _model = SentenceTransformer(MODEL_NAME)
     return _model
-
-
-def _encode(model: TextEmbedding, texts: list[str]) -> np.ndarray:
-    """fastembed's embed() returns a generator of already-unit-normalized
-    vectors (verified directly, not assumed) - stacked into a matrix so
-    cosine similarity is just a dot product, same as before."""
-    return np.array(list(model.embed(texts)))
 
 
 def rank_candidates(query_texts: list[str], corpus_texts: list[str], top_n: int = DEFAULT_TOP_N) -> list[list[int]]:
@@ -57,8 +40,8 @@ def rank_candidates(query_texts: list[str], corpus_texts: list[str], top_n: int 
         return [[] for _ in query_texts]
 
     model = _get_model()
-    corpus_embeddings = _encode(model, corpus_texts)
-    query_embeddings = _encode(model, query_texts)
+    corpus_embeddings = model.encode(corpus_texts, normalize_embeddings=True)
+    query_embeddings = model.encode(query_texts, normalize_embeddings=True)
     similarities = query_embeddings @ corpus_embeddings.T  # cosine similarity (embeddings are normalized)
 
     results = []
@@ -106,7 +89,7 @@ def find_candidate_cross_discipline_clauses_scored(
     model = _get_model()
     texts = [c.text for c in clauses]
     disciplines = [c.series.discipline for c in clauses]
-    embeddings = _encode(model, texts)
+    embeddings = model.encode(texts, normalize_embeddings=True)
     similarities = embeddings @ embeddings.T
 
     result: dict[str, list[tuple[Clause, float]]] = {}

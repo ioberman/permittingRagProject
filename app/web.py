@@ -95,7 +95,7 @@ init_db()
 
 
 def _warm_embedding_model():
-    # The embedding model (fastembed) is loaded lazily on first use -
+    # The embedding model (sentence-transformers) is loaded lazily on first use -
     # nothing during ingest/seeding touches it, only a check or the document
     # network graph does. Without this, whichever user request happens to be
     # first pays that load cost inline, competing for CPU with

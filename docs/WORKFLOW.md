@@ -60,8 +60,8 @@ flowchart TD
    ERD.md's `CLAUSE` notes): the retrieval unit is driven by what a citation
    needs to reference, not by convenience. Table noise is redacted before
    splitting (`app/clause_extraction.py`).
-2. **Retrieve** — a local sentence-embedding model (`all-MiniLM-L6-v2`, run
-   via `fastembed`/ONNX Runtime, see `app/retrieval.py`) narrows candidates
+2. **Retrieve** — a local sentence-embedding model (`all-MiniLM-L6-v2`, via
+   `sentence-transformers`, see `app/retrieval.py`) narrows candidates
    before the LLM runs, so the LLM
    never has to compare every clause against every other clause (O(n²)).
    Which candidate pool it searches depends on check type: jurisdiction code
