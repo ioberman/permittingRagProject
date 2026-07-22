@@ -1,5 +1,14 @@
 # Deploying to Render
 
+**This app has since moved off Render** to a self-managed Oracle Cloud
+Always Free VM - see [HOSTING.md](HOSTING.md) for the current live setup,
+or [DEPLOYMENT_ORACLE.md](DEPLOYMENT_ORACLE.md) for the from-scratch guide.
+Render hit real memory/timeout limits on its free tier that motivated the
+move (see the retrieval-library history in `app/retrieval.py` and
+`CLAUDE.md`). This guide is left here for reference / in case Render (or a
+similar PaaS) is ever the right fit again, not because it's the active
+deployment.
+
 Render runs a real Python process (unlike GitHub Pages, which is static-file
 only and can't run this app at all - see the note in `app/web.py`). This
 covers the manual dashboard path (recommended for your first deploy, since

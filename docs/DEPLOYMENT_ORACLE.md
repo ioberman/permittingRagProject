@@ -1,5 +1,19 @@
 # Deploying to Oracle Cloud "Always Free"
 
+**This app is now actually running on Oracle** - see
+[HOSTING.md](HOSTING.md) for the real, current configuration (IP, exact
+systemd unit, nginx config, firewall rules, a known open issue). It
+diverged from this guide in a couple of places worth knowing before
+following this one from scratch: it runs as the default `ubuntu` user
+directly rather than a dedicated `planreview` system user, and nginx was
+set up as a reverse proxy from the start rather than treated as optional
+later work. This guide is left as-is below as a reasonable from-scratch
+path (and the hardening reasoning - dedicated user, systemd sandboxing -
+is still worth doing), but HOSTING.md is the source of truth for how the
+live instance is actually configured.
+
+---
+
 Unlike Render/Fly, this is a real, persistent VM you manage yourself - no
 managed build pipeline, no automatic HTTPS, no process supervision unless
 you set it up. In exchange, Oracle's Always Free tier (as of when this was
