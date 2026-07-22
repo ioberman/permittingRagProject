@@ -93,6 +93,38 @@ app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
 
+# Tracks checks running in a background thread (see check()/check_cross_discipline()
+# below) so the project page can show "running" and poll instead of a request
+# blocking until a real, possibly 1-2 minute, sequence of LLM calls finishes -
+# that's what was hitting nginx/gunicorn's timeouts on the live deployment.
+# In-memory only, not DB-backed: single-process by design (see
+# AUTO_SEED_ON_START's own reasoning on why more workers need care), so this
+# doesn't need to survive a restart - a check interrupted by one was already
+# going to need re-running anyway.
+_running_checks_lock = threading.Lock()
+_running_checks: set[tuple[str, str]] = set()  # (project_id, check_type value)
+_check_errors: dict[tuple[str, str], str] = {}
+
+
+def _is_check_running(project_id: str, check_type_value: str) -> bool:
+    with _running_checks_lock:
+        return (project_id, check_type_value) in _running_checks
+
+
+def _start_check_tracking(project_id: str, check_type_value: str) -> None:
+    with _running_checks_lock:
+        _running_checks.add((project_id, check_type_value))
+        _check_errors.pop((project_id, check_type_value), None)
+
+
+def _finish_check_tracking(project_id: str, check_type_value: str, error: str | None = None) -> None:
+    with _running_checks_lock:
+        _running_checks.discard((project_id, check_type_value))
+        if error:
+            _check_errors[(project_id, check_type_value)] = error
+        else:
+            _check_errors.pop((project_id, check_type_value), None)
+
 
 def _warm_embedding_model():
     # The embedding model (sentence-transformers) is loaded lazily on first use -
@@ -491,20 +523,45 @@ def check(project_id):
     if project is None:
         return redirect("/?error=Project not found")
 
+    if _is_check_running(project_id, CheckType.JURISDICTION.value):
+        return redirect(f"/projects/{project_id}?error=A vs. code check is already running for this project.")
+
     submission = get_latest_or_create_submission(session, project.id)
+    session.commit()
     engine = request.form.get("engine", "mock")
     force = request.form.get("force") == "1"
-    try:
-        check_submission_for_conflicts(session, submission, engine=engine, force=force)
-    except Exception as e:
-        session.rollback()
-        # Some exceptions (e.g. SQLAlchemy's, which embed the raw SQL) span
-        # multiple lines - collapse to one line, since a redirect target is a
-        # URL, not a place to render a full stack of SQL.
-        message = " ".join(str(e).split())
-        return redirect(f"/projects/{project_id}?{urlencode({'error': f'Check failed: {message}'})}")
-    session.commit()
-    return redirect(f"/projects/{project_id}/flags")
+    submission_id = submission.id
+
+    _start_check_tracking(project_id, CheckType.JURISDICTION.value)
+
+    def _run():
+        # A fresh session, not the request-scoped one above - that one gets
+        # closed by Flask's teardown handler right after this view returns,
+        # well before this background thread's work is done.
+        bg_session = _get_session()
+        try:
+            bg_submission = bg_session.get(Submission, submission_id)
+            check_submission_for_conflicts(bg_session, bg_submission, engine=engine, force=force)
+            bg_session.commit()
+            _finish_check_tracking(project_id, CheckType.JURISDICTION.value)
+        except Exception as e:
+            bg_session.rollback()
+            message = " ".join(str(e).split())
+            _finish_check_tracking(project_id, CheckType.JURISDICTION.value, error=f"Check failed: {message}")
+        finally:
+            bg_session.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return redirect(f"/projects/{project_id}?checking=jurisdiction")
+
+
+@app.get("/projects/<project_id>/check-status")
+def check_status(project_id):
+    check_type_value = request.args.get("type", "jurisdiction")
+    return jsonify({
+        "running": _is_check_running(project_id, check_type_value),
+        "error": _check_errors.get((project_id, check_type_value)),
+    })
 
 
 @app.post("/projects/<project_id>/check-cross-discipline")
@@ -526,16 +583,34 @@ def check_cross_discipline(project_id):
         # no-LLM path goes straight to the candidates preview instead.
         return redirect(f"/projects/{project_id}/cross-discipline-candidates")
 
+    if _is_check_running(project_id, CheckType.CROSS_DISCIPLINE.value):
+        return redirect(f"/projects/{project_id}?error=A cross-discipline check is already running for this project.")
+
     submission = get_latest_or_create_submission(session, project.id)
-    force = request.form.get("force") == "1"
-    try:
-        check_submission_for_cross_discipline_conflicts(session, submission, engine=engine, force=force)
-    except Exception as e:
-        session.rollback()
-        message = " ".join(str(e).split())
-        return redirect(f"/projects/{project_id}?{urlencode({'error': f'Cross-discipline check failed: {message}'})}")
     session.commit()
-    return redirect(f"/projects/{project_id}/flags")
+    force = request.form.get("force") == "1"
+    submission_id = submission.id
+
+    _start_check_tracking(project_id, CheckType.CROSS_DISCIPLINE.value)
+
+    def _run():
+        bg_session = _get_session()
+        try:
+            bg_submission = bg_session.get(Submission, submission_id)
+            check_submission_for_cross_discipline_conflicts(bg_session, bg_submission, engine=engine, force=force)
+            bg_session.commit()
+            _finish_check_tracking(project_id, CheckType.CROSS_DISCIPLINE.value)
+        except Exception as e:
+            bg_session.rollback()
+            message = " ".join(str(e).split())
+            _finish_check_tracking(
+                project_id, CheckType.CROSS_DISCIPLINE.value, error=f"Cross-discipline check failed: {message}"
+            )
+        finally:
+            bg_session.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return redirect(f"/projects/{project_id}?checking=cross_discipline")
 
 
 @app.get("/projects/<project_id>/cross-discipline-candidates")

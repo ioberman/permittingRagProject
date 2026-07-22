@@ -15,6 +15,7 @@ import io
 import os
 import re
 import tempfile
+import time
 
 _tmp_dir = tempfile.mkdtemp(prefix="plan_review_web_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_dir}/test_web.db"
@@ -164,12 +165,20 @@ def test_document_clauses_search(client, project_id):
 
 
 def test_check_mock_engine_runs_without_error(client, project_id):
-    resp = client.post(
-        f"/projects/{project_id}/check",
-        data={"engine": "mock", "force": "1"},
-        follow_redirects=True,
-    )
-    assert resp.status_code == 200
+    resp = client.post(f"/projects/{project_id}/check", data={"engine": "mock", "force": "1"})
+    assert resp.status_code == 302
+    assert "checking=jurisdiction" in resp.headers["Location"]
+
+    deadline = time.time() + 10
+    status = None
+    while time.time() < deadline:
+        status = client.get(f"/projects/{project_id}/check-status?type=jurisdiction").get_json()
+        if not status["running"]:
+            break
+        time.sleep(0.05)
+    assert status is not None and not status["running"]
+    assert status["error"] is None
+
     flags_page = client.get(f"/projects/{project_id}/flags")
     assert flags_page.status_code == 200
 

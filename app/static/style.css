@@ -323,6 +323,20 @@ pre {
 .inline-check input { margin: 0; }
 .check-row.footer-row { background: var(--accent-soft); }
 
+.check-status-msg { font-size: 0.82rem; font-weight: 600; color: var(--ink-faint); }
+.check-status-msg.running { color: var(--accent); }
+.check-status-msg.running::before {
+  content: ""; display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.4rem;
+  border-radius: 50%; background: var(--accent); vertical-align: middle; animation: check-pulse 1.1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .check-status-msg.running::before { animation: none; }
+}
+@keyframes check-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
 /* ---------- Sheets toolbar / collapsible add-sheet form ---------- */
 
 .sheets-toolbar { display: flex; justify-content: space-between; align-items: baseline; margin: 2.75rem 0 1rem; }

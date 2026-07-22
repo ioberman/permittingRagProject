@@ -28,14 +28,14 @@
 {% endif %}
 
 <div class="check-panel">
-  <form method="post" action="/projects/{{ project.id }}/check" class="check-row">
+  <form method="post" action="/projects/{{ project.id }}/check" class="check-row" id="jurisdiction-check-form">
     <div class="check-info">
       <div class="name">Check vs. code</div>
       <div class="desc">Compares each sheet against this jurisdiction's adopted amendments.</div>
     </div>
     <div class="check-controls">
       <label class="field-label">Engine
-        <select name="engine" class="engine-select">
+        <select name="engine" class="engine-select" id="jurisdiction-engine-select">
           <option value="mock">mock (no API key)</option>
           <option value="groq">groq (free tier)</option>
           <option value="real">real (Claude, paid)</option>
@@ -44,17 +44,18 @@
       <label class="inline-check" title="Re-check every current clause from scratch, instead of only the ones never checked before">
         <input type="checkbox" name="force" value="1"> Full re-check
       </label>
-      <button type="submit" class="btn sm">Run check</button>
+      <span class="check-status-msg" id="jurisdiction-check-status"></span>
+      <button type="submit" class="btn sm" id="jurisdiction-check-submit">Run check</button>
     </div>
   </form>
-  <form method="post" action="/projects/{{ project.id }}/check-cross-discipline" class="check-row">
+  <form method="post" action="/projects/{{ project.id }}/check-cross-discipline" class="check-row" id="cross-discipline-check-form">
     <div class="check-info">
       <div class="name">Check cross-discipline</div>
       <div class="desc">Coordination clashes against other disciplines in this submission.</div>
     </div>
     <div class="check-controls">
       <label class="field-label">Engine
-        <select name="engine" class="engine-select" onchange="document.getElementById('cross-check-submit').textContent = this.value === 'preview' ? 'Preview candidates (not saved)' : 'Run check'">
+        <select name="engine" class="engine-select" id="cross-discipline-engine-select" onchange="document.getElementById('cross-check-submit').textContent = this.value === 'preview' ? 'Preview candidates (not saved)' : 'Run check'">
           <option value="preview" title="Shows the semantic-similarity matches without judging conflict vs. no conflict - no API key needed, but nothing is saved as a flag">preview (no LLM)</option>
           <option value="groq">groq (free tier)</option>
           <option value="real">real (Claude, paid)</option>
@@ -63,6 +64,7 @@
       <label class="inline-check" title="Re-check every current clause from scratch, instead of only the ones never checked before">
         <input type="checkbox" name="force" value="1"> Full re-check
       </label>
+      <span class="check-status-msg" id="cross-discipline-check-status"></span>
       <button type="submit" class="btn sm" id="cross-check-submit">Preview candidates (not saved)</button>
     </div>
   </form>
@@ -211,6 +213,61 @@
     titleInput.classList.add('autofilled');
     disciplineSelect.classList.add('autofilled');
   }
+
+  // Checks run in a background thread server-side now (see app/web.py) -
+  // a real check can legitimately take a minute or more (sequential LLM
+  // calls, even parallelized), which used to mean the request just sat
+  // there until nginx/gunicorn's timeout killed it. Submitting the form
+  // now gets an immediate redirect back here with the check already
+  // running in the background; this polls a small status endpoint instead
+  // of blocking on one long request.
+  const CHECK_TYPES = {
+    jurisdiction: {
+      buttonId: 'jurisdiction-check-submit', statusId: 'jurisdiction-check-status', selectId: 'jurisdiction-engine-select',
+    },
+    cross_discipline: {
+      buttonId: 'cross-check-submit', statusId: 'cross-discipline-check-status', selectId: 'cross-discipline-engine-select',
+    },
+  };
+
+  function pollCheckStatus(type) {
+    const cfg = CHECK_TYPES[type];
+    const button = document.getElementById(cfg.buttonId);
+    const select = document.getElementById(cfg.selectId);
+    const status = document.getElementById(cfg.statusId);
+    button.disabled = true;
+    select.disabled = true;
+    status.textContent = 'Running…';
+    status.classList.add('running');
+
+    const interval = setInterval(async () => {
+      const res = await fetch(`/projects/${PROJECT_ID}/check-status?type=${type}`);
+      const data = await res.json();
+      if (data.running) return;
+
+      clearInterval(interval);
+      if (data.error) {
+        window.location.href = `/projects/${PROJECT_ID}?error=${encodeURIComponent(data.error)}`;
+      } else {
+        window.location.href = `/projects/${PROJECT_ID}/flags`;
+      }
+    }, 2000);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const checking = new URLSearchParams(window.location.search).get('checking');
+    for (const type of Object.keys(CHECK_TYPES)) {
+      if (type === checking) {
+        pollCheckStatus(type);
+      } else {
+        // Covers a page refresh mid-check, or someone else on the team
+        // having kicked one off - not just the just-submitted case.
+        fetch(`/projects/${PROJECT_ID}/check-status?type=${type}`)
+          .then((res) => res.json())
+          .then((data) => { if (data.running) pollCheckStatus(type); });
+      }
+    }
+  });
   document.getElementById('sheet_number').addEventListener('blur', autofillFromExistingSheet);
 </script>
 

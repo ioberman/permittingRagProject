@@ -20,6 +20,7 @@ clause that's since been superseded by a revision naturally drops out of
 the database as audit history.
 """
 
+import concurrent.futures
 from collections import defaultdict
 from typing import Callable
 
@@ -227,6 +228,9 @@ def _clear_project_check_results(session: Session, project_id: str, check_type: 
     session.query(LLMCall).filter(LLMCall.submission_id.in_(submission_ids), LLMCall.check_type == check_type).delete(synchronize_session=False)
 
 
+MAX_CONCURRENT_LLM_CALLS = 6  # balances wall-clock speed against tripping a provider's rate limit
+
+
 def run_check(
     session: Session,
     submission: Submission,
@@ -244,7 +248,16 @@ def run_check(
     attach to `submission` (the current checkpoint); untouched clauses keep
     whichever earlier submission's rows they already had. Returns the
     project's full current set of flags for this check_type, not just the
-    ones created in this call - that's what callers actually want to know."""
+    ones created in this call - that's what callers actually want to know.
+
+    detect_fn calls run concurrently (ThreadPoolExecutor) - confirmed pure,
+    no session/DB access at all, just a network call to whichever LLM
+    provider - so this is safe with zero SQLAlchemy thread-safety concerns:
+    every DB write below still happens serially, in this thread, after all
+    the concurrent calls finish. This was the single biggest lever for a
+    real production timeout - one clause per sequential network round-trip
+    meant a 36-clause project took 70-100+ seconds no matter how fast
+    anything else was."""
     project_id = submission.project_id
 
     if force:
@@ -253,12 +266,20 @@ def run_check(
     else:
         already_checked = _already_checked_clause_ids(session, project_id, check_type)
 
-    for clause in clauses:
-        if clause.id in already_checked:
-            continue
+    to_process = [c for c in clauses if c.id not in already_checked]
 
-        candidates = candidates_by_clause.get(clause.id, [])
-        results, call_record = detect_fn(clause, candidates)
+    detections: dict[str, tuple[list, object]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT_LLM_CALLS) as executor:
+        future_to_clause_id = {
+            executor.submit(detect_fn, clause, candidates_by_clause.get(clause.id, [])): clause.id
+            for clause in to_process
+        }
+        for future in concurrent.futures.as_completed(future_to_clause_id):
+            clause_id = future_to_clause_id[future]
+            detections[clause_id] = future.result()  # re-raises here if detect_fn raised, same as the old serial loop
+
+    for clause in to_process:
+        results, call_record = detections[clause.id]
 
         llm_call = None
         if call_record is not None:
