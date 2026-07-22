@@ -341,6 +341,89 @@ erDiagram
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') closeDiagramsModal();
     });
+
+    // Lightweight guided tour, shared by any page that defines its own
+    // steps (see project_detail.html/flags.html) - a spotlight highlight
+    // plus a tooltip, no external library. A step whose target isn't on the
+    // page in its current state (e.g. a table row that only exists once
+    // something's been uploaded) is skipped rather than breaking the tour.
+    var tourState = null;
+
+    function tourCleanup() {
+      document.querySelectorAll('.tour-highlight, .tour-tooltip').forEach(function (el) { el.remove(); });
+      document.removeEventListener('keydown', tourKeyHandler);
+      tourState = null;
+    }
+    function tourKeyHandler(e) {
+      if (e.key === 'Escape') tourCleanup();
+    }
+    function startTour(steps) {
+      tourCleanup();
+      tourState = { steps: steps, index: 0 };
+      document.addEventListener('keydown', tourKeyHandler);
+      tourRender();
+    }
+    function tourStep(delta) {
+      if (!tourState) return;
+      var next = tourState.index + delta;
+      if (next < 0) return;
+      if (next >= tourState.steps.length) { tourCleanup(); return; }
+      tourState.index = next;
+      tourRender();
+    }
+    function tourRender() {
+      document.querySelectorAll('.tour-highlight, .tour-tooltip').forEach(function (el) { el.remove(); });
+      var step = tourState.steps[tourState.index];
+      var target = document.querySelector(step.selector);
+      if (!target) { tourStep(1); return; }
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+      // A fixed delay rather than waiting on a scroll-end event - not
+      // perfectly synced with the browser's smooth-scroll animation, but
+      // every render re-measures the target's position anyway, so a
+      // slightly-stale rect here just means the spotlight briefly lags,
+      // never actually breaks.
+      setTimeout(function () {
+        if (!tourState) return;
+        var rect = target.getBoundingClientRect();
+        var pad = 6;
+
+        var highlight = document.createElement('div');
+        highlight.className = 'tour-highlight';
+        highlight.style.top = (rect.top - pad) + 'px';
+        highlight.style.left = (rect.left - pad) + 'px';
+        highlight.style.width = (rect.width + pad * 2) + 'px';
+        highlight.style.height = (rect.height + pad * 2) + 'px';
+        document.body.appendChild(highlight);
+
+        var tooltip = document.createElement('div');
+        tooltip.className = 'tour-tooltip';
+        var isLast = tourState.index === tourState.steps.length - 1;
+        tooltip.innerHTML =
+          '<div class="tour-progress">Step ' + (tourState.index + 1) + ' of ' + tourState.steps.length + '</div>' +
+          '<p>' + step.text + '</p>' +
+          '<div class="tour-actions">' +
+            '<button type="button" class="btn ghost sm" id="tour-skip">Skip</button>' +
+            '<div class="tour-nav">' +
+              (tourState.index > 0 ? '<button type="button" class="btn ghost sm" id="tour-back">Back</button>' : '') +
+              '<button type="button" class="btn sm" id="tour-next">' + (isLast ? 'Done' : 'Next') + '</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(tooltip);
+
+        var tRect = tooltip.getBoundingClientRect();
+        var top = rect.bottom + 12;
+        if (top + tRect.height > window.innerHeight - 12) top = Math.max(12, rect.top - tRect.height - 12);
+        var left = Math.min(Math.max(12, rect.left), window.innerWidth - tRect.width - 12);
+        tooltip.style.top = top + 'px';
+        tooltip.style.left = left + 'px';
+
+        document.getElementById('tour-skip').addEventListener('click', tourCleanup);
+        document.getElementById('tour-next').addEventListener('click', function () { tourStep(1); });
+        var backBtn = document.getElementById('tour-back');
+        if (backBtn) backBtn.addEventListener('click', function () { tourStep(-1); });
+      }, 260);
+    }
   </script>
   {% block extra_scripts %}{% endblock %}
 </body>

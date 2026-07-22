@@ -9,10 +9,13 @@
       <div class="eyebrow">Project</div>
       <h1 class="serif">{{ project.name }}</h1>
     </div>
-    <button type="button" class="btn sm" onclick="openGraphModal()">
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 0.3rem;"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.2 7.4 10 16.2M15.8 7.4 14 16.2M8.6 6h6.8"/></svg>
-      Document network
-    </button>
+    <div class="page-title-actions">
+      <button type="button" class="btn ghost sm" onclick="startProjectTour()">Take a tour</button>
+      <button type="button" class="btn sm" onclick="openGraphModal()">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 0.3rem;"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="12" cy="18" r="2.6"/><path d="M8.2 7.4 10 16.2M15.8 7.4 14 16.2M8.6 6h6.8"/></svg>
+        Document network
+      </button>
+    </div>
   </div>
   <div class="meta-line">
     <span>Jurisdiction: {{ project.jurisdiction.name }}</span>
@@ -69,14 +72,14 @@
     </div>
   </form>
   <div class="check-row footer-row">
-    <a href="/projects/{{ project.id }}/flags" class="action-link">View current flags &rarr;</a>
+    <a href="/projects/{{ project.id }}/flags" class="action-link" id="view-flags-link">View current flags &rarr;</a>
     <form method="post" action="/projects/{{ project.id }}/new-revision">
       <button type="submit" class="btn ghost sm">Start new revision</button>
     </form>
   </div>
 </div>
 
-<div class="sheets-toolbar">
+<div class="sheets-toolbar" id="sheets-toolbar">
   <h2>Current sheets{% if latest_submission %} &middot; {{ latest_submission.revision_label }}{% endif %}</h2>
 </div>
 {% if sheet_rows %}
@@ -124,7 +127,7 @@
 <p class="meta">No sheets ingested yet - add one below.</p>
 {% endif %}
 
-<details class="collapsible-form" open>
+<details class="collapsible-form" open id="add-sheet-section">
   <summary>Add a sheet</summary>
   <form method="post" action="/projects/{{ project.id }}/ingest" enctype="multipart/form-data" class="form-body">
     {% if revising %}
@@ -195,6 +198,16 @@
 {% block extra_scripts %}
 <script>
   const PROJECT_ID = "{{ project.id }}";
+
+  function startProjectTour() {
+    startTour([
+      { selector: '#add-sheet-section', text: 'Upload plan sheets here - PDF or Word docs. Sheet number and title are auto-filled from the file when possible, so you usually just need to confirm the discipline.' },
+      { selector: '#jurisdiction-check-form', text: 'Run a "vs. code" check to catch violations against this project\'s local jurisdiction amendments, with citations back to the exact clause.' },
+      { selector: '#cross-discipline-check-form', text: 'Run a cross-discipline check to catch coordination clashes between disciplines - like a duct routed through a structural beam\'s clear height.' },
+      { selector: '#sheets-toolbar', text: 'Every sheet you\'ve uploaded shows up below, along with its clause count and revision history further down the page.' },
+      { selector: '#view-flags-link', text: 'Once a check finishes, review what it found here - and take the tour on the Flags page for a walkthrough of that view too.' },
+    ]);
+  }
   async function autofillFromExistingSheet() {
     const sheet = document.getElementById('sheet_number').value.trim();
     const titleInput = document.getElementById('title');

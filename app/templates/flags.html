@@ -8,17 +8,20 @@
     <div class="eyebrow">Flags</div>
     <h1 class="serif">Current flags &mdash; {{ project }}</h1>
   </div>
-  <span class="info-tooltip" tabindex="0">
-    <span class="info-tooltip-icon" aria-hidden="true">i</span>
-    <span class="info-tooltip-content">Every clause is only ever reasoned about once per check
-      type - a flag found under an earlier revision stays current here until the clause it's
-      about is itself superseded by a later revision, not until the whole project is
-      re-checked.</span>
-  </span>
+  <div class="page-title-actions">
+    <span class="info-tooltip" tabindex="0">
+      <span class="info-tooltip-icon" aria-hidden="true">i</span>
+      <span class="info-tooltip-content">Every clause is only ever reasoned about once per check
+        type - a flag found under an earlier revision stays current here until the clause it's
+        about is itself superseded by a later revision, not until the whole project is
+        re-checked.</span>
+    </span>
+    <button type="button" class="btn ghost sm" onclick="startFlagsTour()">Take a tour</button>
+  </div>
 </div>
-<p class="meta">{{ flags|length }} flag(s) found &middot; <a href="/projects/{{ project_id }}/audit-report" class="action-link">view audit report &rarr;</a> &middot; <a href="/metrics" class="action-link">view metrics &rarr;</a></p>
+<p class="meta" id="flags-links">{{ flags|length }} flag(s) found &middot; <a href="/projects/{{ project_id }}/audit-report" class="action-link">view audit report &rarr;</a> &middot; <a href="/metrics" class="action-link">view metrics &rarr;</a></p>
 
-<div class="filter-tabs">
+<div class="filter-tabs" id="flags-filter-tabs">
   <a class="filter-tab {{ 'active' if type_filter == 'all' }}" href="?type=all">All ({{ jurisdiction_count + cross_discipline_count }})</a>
   <a class="filter-tab {{ 'active' if type_filter == 'jurisdiction' }}" href="?type=jurisdiction">vs. code ({{ jurisdiction_count }})</a>
   <a class="filter-tab {{ 'active' if type_filter == 'cross_discipline' }}" href="?type=cross_discipline">Cross-discipline ({{ cross_discipline_count }})</a>
@@ -37,7 +40,7 @@
     <col style="width: 17%">
     <col style="width: 9%">
   </colgroup>
-  <tr><th>Type</th><th>Severity</th><th>Clause</th><th>Found in</th><th>Explanation</th><th>Cited</th><th>Model</th><th>Status</th><th></th></tr>
+  <tr id="flags-table-header"><th>Type</th><th>Severity</th><th>Clause</th><th>Found in</th><th>Explanation</th><th>Cited</th><th>Model</th><th id="flags-status-header">Status</th><th></th></tr>
   {% for f in flags %}
   <tr>
     <td>{{ "cross-discipline" if f.check_type.value == "cross_discipline" else "vs. code" }}</td>
@@ -73,4 +76,17 @@
 </table>
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function startFlagsTour() {
+    startTour([
+      { selector: '#flags-filter-tabs', text: 'Filter by check type - jurisdiction-code violations vs. cross-discipline coordination clashes.' },
+      { selector: '#flags-table-header', text: 'Every flag shows its severity, the clause it\'s about, a plain-English explanation, and the exact citations backing it up - never an unexplained miss.' },
+      { selector: '#flags-status-header', text: 'Mark each flag\'s real-world outcome here - acknowledged, resolved, or false positive. This rolls up into the reviewer-confirmed precision figure on the Metrics page.' },
+      { selector: '#flags-links', text: 'Export a timestamped audit report, or check the Metrics dashboard for precision and cycle-time numbers.' },
+    ]);
+  }
+</script>
 {% endblock %}
