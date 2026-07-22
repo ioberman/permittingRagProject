@@ -128,7 +128,7 @@
 {% endif %}
 
 <details class="collapsible-form" open id="add-sheet-section">
-  <summary>Add a sheet{{ 's' if not revising }}</summary>
+  <summary>{{ 'Add a sheet' if revising else 'Add sheets' }}</summary>
   {% if revising %}
   <form method="post" action="/projects/{{ project.id }}/ingest" enctype="multipart/form-data" class="form-body">
     <p class="info full">Revising <strong>{{ prefill_sheet_number }}</strong> as a new revision - pick the updated file below.</p>
