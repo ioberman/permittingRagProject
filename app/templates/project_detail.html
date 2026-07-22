@@ -142,7 +142,7 @@
       <input id="title" name="title" value="{{ prefill_title }}" required>
     </label>
     <label class="full">File
-      <input type="file" name="file" required>
+      <input type="file" name="file" id="ingest_file" required>
     </label>
     <div class="full"><button type="submit">Ingest</button></div>
   </form>
@@ -214,6 +214,38 @@
     disciplineSelect.classList.add('autofilled');
   }
 
+  // Best-effort prefill from the file itself (sheet number from its
+  // content/filename, title from its filename - see
+  // app/web.py's sheet_info_from_file for why title isn't guessed from
+  // content too). Never overwrites something the user already typed, and
+  // is always editable afterward - a convenience, not a validated fact.
+  async function autofillFromFile() {
+    const fileInput = document.getElementById('ingest_file');
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    const sheetInput = document.getElementById('sheet_number');
+    const titleInput = document.getElementById('title');
+
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/sheet-info-from-file', { method: 'POST', body: formData });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (!sheetInput.value.trim() && data.sheet_number) {
+      sheetInput.value = data.sheet_number;
+      sheetInput.classList.add('autofilled');
+    }
+    if (!titleInput.value.trim() && data.title) {
+      titleInput.value = data.title;
+      titleInput.classList.add('autofilled');
+    }
+    // If that sheet number matches an existing sheet (a revision), prefer
+    // its authoritative title/discipline over the filename-based guess.
+    autofillFromExistingSheet();
+  }
+
   // Checks run in a background thread server-side now (see app/web.py) -
   // a real check can legitimately take a minute or more (sequential LLM
   // calls, even parallelized), which used to mean the request just sat
@@ -269,6 +301,7 @@
     }
   });
   document.getElementById('sheet_number').addEventListener('blur', autofillFromExistingSheet);
+  document.getElementById('ingest_file').addEventListener('change', autofillFromFile);
 </script>
 
 <script>

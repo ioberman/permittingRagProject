@@ -183,6 +183,51 @@ def test_check_mock_engine_runs_without_error(client, project_id):
     assert flags_page.status_code == 200
 
 
+def test_sheet_info_from_file_prefills_sheet_number_and_title(client):
+    import fitz
+
+    with fitz.open() as doc:
+        page = doc.new_page()
+        page.insert_text((50, 50), "General notes.\nSHEET E-201\nEnd of notes.", fontsize=10)
+        pdf_bytes = doc.tobytes()
+
+    resp = client.post(
+        "/sheet-info-from-file",
+        data={"file": (io.BytesIO(pdf_bytes), "Electrical_Panel_Layout.pdf")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["sheet_number"] == "E-201"
+    assert data["title"] == "Electrical Panel Layout"  # underscores humanized, extension stripped
+
+
+def test_sheet_info_from_file_falls_back_to_filename_for_sheet_number(client):
+    # No SHEET label and no oversized token inside the file - only the
+    # filename itself looks like a sheet number.
+    import fitz
+
+    with fitz.open() as doc:
+        page = doc.new_page()
+        page.insert_text((50, 50), "Just some plain prose, no sheet number here.", fontsize=10)
+        pdf_bytes = doc.tobytes()
+
+    resp = client.post(
+        "/sheet-info-from-file",
+        data={"file": (io.BytesIO(pdf_bytes), "S-301.pdf")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["sheet_number"] == "S-301"
+
+
+def test_sheet_info_from_file_no_file_returns_nulls(client):
+    resp = client.post("/sheet-info-from-file", data={}, content_type="multipart/form-data")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"sheet_number": None, "title": None}
+
+
 def test_describe_check_error_recognizes_rate_limit_status_code():
     class _FakeRateLimitError(Exception):
         status_code = 429

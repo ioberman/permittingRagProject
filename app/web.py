@@ -21,6 +21,7 @@ the Flask process, hit the database, or call an LLM API.
 import csv
 import io
 import os
+import re
 import sys
 import threading
 from datetime import datetime, timezone
@@ -48,7 +49,12 @@ from app.check_persistence import (
     diff_between_submissions,
     document_graph_data,
 )
-from app.clause_extraction import extract_and_store_clauses, extract_and_store_jurisdiction_clauses
+from app.clause_extraction import (
+    SHEET_NUMBER_TOKEN,
+    extract_and_store_clauses,
+    extract_and_store_jurisdiction_clauses,
+    sniff_sheet_number,
+)
 from app.conflict_detection import check_submission_for_conflicts
 from app.cross_discipline_detection import check_submission_for_cross_discipline_conflicts
 from app.db import get_session as _get_session
@@ -443,6 +449,45 @@ def series_info():
     if series is None:
         return jsonify(None)
     return jsonify({"title": series.title, "discipline": series.discipline.value})
+
+
+def _sheet_number_from_filename(filename: str) -> str | None:
+    """A great many CAD exports are literally named after the sheet
+    (A-101.pdf, S-101.pdf) - no PDF parsing needed if the filename itself
+    already looks like a sheet number."""
+    stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+    return stem.upper() if SHEET_NUMBER_TOKEN.match(stem) else None
+
+
+def _title_from_filename(filename: str) -> str:
+    """A human-readable fallback for the title field - sheet-number-based
+    extraction from PDF content is unreliable enough (see
+    app.clause_extraction.sniff_sheet_number's docstring) that guessing a
+    title from page content risks silently filling in the wrong thing;
+    the filename itself, cleaned up, is an honest best-effort prefill the
+    user is expected to review and edit, not a confident extraction."""
+    stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+    return re.sub(r"[_\-]+", " ", stem).strip()
+
+
+@app.post("/sheet-info-from-file")
+def sheet_info_from_file():
+    """Best-effort prefill for the upload form's sheet number/title fields,
+    called from the browser as soon as a file is chosen - never blocks or
+    validates the actual upload, just saves re-typing what a file's own
+    name/content usually already says."""
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"sheet_number": None, "title": None})
+
+    try:
+        doc_type = infer_doc_type(file.filename)
+    except ValueError:
+        return jsonify({"sheet_number": None, "title": _title_from_filename(file.filename)})
+
+    content = file.read()
+    sheet_number = sniff_sheet_number(content, doc_type) or _sheet_number_from_filename(file.filename)
+    return jsonify({"sheet_number": sheet_number, "title": _title_from_filename(file.filename)})
 
 
 @app.post("/projects/<project_id>/ingest")

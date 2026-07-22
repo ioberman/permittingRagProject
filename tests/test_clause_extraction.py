@@ -6,6 +6,7 @@ from app.clause_extraction import (
     MAX_CLAUSE_LENGTH,
     extract_and_store_clauses,
     extract_pages,
+    sniff_sheet_number,
     split_into_clauses,
 )
 from app.ingest import create_submission, get_or_create_project, ingest_document
@@ -172,6 +173,35 @@ def test_extract_and_store_clauses_dedups_across_revisions(session, storage, jur
 
     assert total_clauses == count1  # no new Clause rows on the second, identical pass
     assert total_links == count1 + count2  # but both documents are linked
+
+
+def test_sniff_sheet_number_prefers_largest_font_token_on_real_cad_sheet():
+    """Regression case: this real sheet's body text contains "SHEET A5.0.X"
+    cross-references to OTHER sheets, which an explicit-label search alone
+    would wrongly latch onto - the oversized title-block token (this
+    sheet's own number) must win instead."""
+    assert sniff_sheet_number(FP_SCOPE_OF_WORK_PDF.read_bytes(), DocType.PDF_2D) == "FP0.1"
+
+
+def test_sniff_sheet_number_falls_back_to_label_when_no_oversized_token():
+    # A single insert_text call means every span shares one font size, so
+    # there's no "largest" token to find - this exercises the SHEET-label
+    # fallback path on its own.
+    pdf_bytes = make_test_pdf("General notes.\nSHEET A-101\nEnd of notes.")
+    assert sniff_sheet_number(pdf_bytes, DocType.PDF_2D) == "A-101"
+
+
+def test_sniff_sheet_number_returns_none_when_no_signal_present():
+    pdf_bytes = make_test_pdf("Just some plain prose with no sheet number anywhere.")
+    assert sniff_sheet_number(pdf_bytes, DocType.PDF_2D) is None
+
+
+def test_sniff_sheet_number_returns_none_for_non_pdf_doc_types():
+    assert sniff_sheet_number(b"1.1 Some spec text mentioning SHEET A-101.", DocType.SPEC) is None
+
+
+def test_sniff_sheet_number_returns_none_on_malformed_pdf():
+    assert sniff_sheet_number(b"not actually a pdf", DocType.PDF_2D) is None
 
 
 def test_extract_and_store_clauses_skips_bim(session, storage, jurisdiction):

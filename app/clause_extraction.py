@@ -199,6 +199,61 @@ def extract_pages(content: bytes, doc_type: DocType, filename: str) -> list[str]
     return []  # unsupported format (bim, .doc, .rtf, ...)
 
 
+SHEET_LABEL_PATTERN = re.compile(r"\bSHEET\s+([A-Za-z]{1,4}[.\-]?\d{1,3}(?:[.\-]\d{1,3})*[A-Za-z]?)\b", re.IGNORECASE)
+SHEET_NUMBER_TOKEN = re.compile(r"^[A-Za-z]{1,4}[.\-]?\d{1,3}(?:[.\-]\d{1,3})*[A-Za-z]?$")
+
+
+def sniff_sheet_number(content: bytes, doc_type: DocType) -> str | None:
+    """Best-effort guess at a sheet's own number (e.g. "A-101") from its
+    content, to prefill the upload form instead of requiring it typed by
+    hand every time. Two independent signals on the first page, tried in
+    order:
+      1. The largest-font text shaped like a sheet number - real CAD title
+         blocks print it oversized (e.g. "A0.1" at 40pt+), since it's the
+         thing a reviewer scans for first. Tried first because it's the more
+         reliable signal on real CAD exports.
+      2. An explicit "SHEET A-101" label - the convention this project's own
+         demo materials use, and a fallback for real sheets whose own number
+         isn't the single largest thing on the page. Tried second, not
+         first: on a real plan set this text just as often shows up as a
+         cross-reference to a DIFFERENT sheet ("see sheet A5.0.X for
+         details") as it does the sheet's own number - verified against a
+         real page where this label match alone would have silently picked
+         a cross-referenced sheet instead of the page's actual number, which
+         the largest-font signal got right.
+    A filename-based fallback (many CAD exports are literally named after
+    the sheet, e.g. "A-101.pdf") is left to the caller - it needs no PDF
+    parsing at all. Only PDF sheets carry a title block in the first place,
+    so this returns None for spec text.
+    """
+    if doc_type != DocType.PDF_2D:
+        return None
+    try:
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            if doc.page_count == 0:
+                return None
+            page = doc[0]
+
+            largest: tuple[float, str] | None = None
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    for span in line["spans"]:
+                        text = span["text"].strip()
+                        if SHEET_NUMBER_TOKEN.match(text) and (largest is None or span["size"] > largest[0]):
+                            largest = (span["size"], text)
+            if largest:
+                return largest[1].upper()
+
+            label_match = SHEET_LABEL_PATTERN.search(page.get_text())
+            if label_match:
+                return label_match.group(1).upper()
+            return None
+    except Exception:
+        # Malformed/unusual PDF - this is a convenience prefill, not a
+        # required step, so fail quietly and let the user type it in.
+        return None
+
+
 def _get_or_link_clause(
     session: Session, document: Document, label: str, text: str, page_number: int, method: ExtractionMethod
 ) -> Clause:
