@@ -15,12 +15,17 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Clause,
     DocType,
     Discipline,
     Document,
+    DocumentClause,
     DocumentSeries,
+    Flag,
+    FlagCitation,
     Jurisdiction,
     JurisdictionDocument,
+    LLMCall,
     Project,
     Submission,
 )
@@ -239,3 +244,34 @@ def ingest_document(
         session, submission, series, doc_type, file_uri, file_hash,
         metadata={"original_filename": filename},
     )
+
+
+def delete_project_cascade(session: Session, project_id: str) -> None:
+    """Deletes a Project and everything that references it - SQLite doesn't
+    enforce foreign keys by default here (no PRAGMA foreign_keys=ON), so a
+    plain `DELETE FROM projects` would silently leave orphaned Submission/
+    DocumentSeries/Document/Clause/LLMCall/Flag/FlagCitation rows behind
+    instead of erroring. Order matters even though nothing enforces it:
+    children before the things they reference. Does not touch the
+    content-addressed files in storage/ - those are keyed by hash and may be
+    shared with other projects/documents, so there's no safe per-project
+    deletion of them without reference counting; leftover files are a disk
+    cleanup concern, not a data-integrity one.
+
+    Caller commits - this only flushes deletes within the given session.
+    """
+    submission_ids = [row.id for row in session.query(Submission.id).filter_by(project_id=project_id)]
+    series_ids = [row.id for row in session.query(DocumentSeries.id).filter_by(project_id=project_id)]
+    document_ids = [row.id for row in session.query(Document.id).filter(Document.submission_id.in_(submission_ids))]
+    clause_ids = [row.id for row in session.query(Clause.id).filter(Clause.document_series_id.in_(series_ids))]
+    flag_ids = [row.id for row in session.query(Flag.id).filter(Flag.submission_id.in_(submission_ids))]
+
+    session.query(FlagCitation).filter(FlagCitation.flag_id.in_(flag_ids)).delete(synchronize_session=False)
+    session.query(Flag).filter(Flag.submission_id.in_(submission_ids)).delete(synchronize_session=False)
+    session.query(LLMCall).filter(LLMCall.submission_id.in_(submission_ids)).delete(synchronize_session=False)
+    session.query(DocumentClause).filter(DocumentClause.document_id.in_(document_ids)).delete(synchronize_session=False)
+    session.query(Clause).filter(Clause.id.in_(clause_ids)).delete(synchronize_session=False)
+    session.query(Document).filter(Document.id.in_(document_ids)).delete(synchronize_session=False)
+    session.query(DocumentSeries).filter(DocumentSeries.id.in_(series_ids)).delete(synchronize_session=False)
+    session.query(Submission).filter(Submission.id.in_(submission_ids)).delete(synchronize_session=False)
+    session.query(Project).filter_by(id=project_id).delete(synchronize_session=False)

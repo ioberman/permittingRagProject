@@ -61,6 +61,7 @@ from app.db import get_session as _get_session
 from app.db import init_db
 from app.ingest import (
     DEFAULT_SUBMITTED_BY,
+    delete_project_cascade,
     find_series,
     get_latest_or_create_submission,
     get_or_create_jurisdiction,
@@ -349,6 +350,7 @@ def index():
         jurisdictions=jurisdictions_with_documentation(session),
         rows=_project_summary_rows(session),
         error=request.args.get("error"),
+        deleted=request.args.get("deleted"),
     )
 
 
@@ -362,6 +364,31 @@ def create_project():
     project = get_or_create_project(session, request.form["project_name"], jurisdiction_id)
     session.commit()
     return redirect(f"/projects/{project.id}")
+
+
+@app.post("/projects/<project_id>/delete")
+def delete_project(project_id):
+    """Password-gated, not tied to a real user account - there's no auth
+    system yet (see CLAUDE.md's "What's actually next"), so this is a
+    stopgap against anyone with the URL deleting a project, not a real
+    permission model. Fails closed: if DELETE_PASSWORD isn't set on this
+    deploy at all, deletion is disabled rather than silently open to
+    anyone who submits an empty password."""
+    configured_password = os.environ.get("DELETE_PASSWORD")
+    if not configured_password:
+        return redirect("/?error=Deleting projects is disabled (DELETE_PASSWORD is not configured on this server).")
+    if request.form.get("password") != configured_password:
+        return redirect("/?error=Incorrect password - project not deleted.")
+
+    session = get_session()
+    project = session.get(Project, project_id)
+    if project is None:
+        return redirect("/?error=Project not found")
+
+    project_name = project.name
+    delete_project_cascade(session, project_id)
+    session.commit()
+    return redirect(f"/?{urlencode({'deleted': project_name})}")
 
 
 @app.get("/projects/<project_id>")

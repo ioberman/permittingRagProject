@@ -130,6 +130,43 @@ def test_ingest_two_disciplines(client, project_id):
     assert b"M-101" in detail.data
 
 
+def test_delete_project_is_disabled_when_no_password_configured(client, jurisdiction_id, monkeypatch):
+    project_id = _new_project(client, jurisdiction_id, "Delete Disabled Test Project")
+    monkeypatch.delenv("DELETE_PASSWORD", raising=False)
+
+    resp = client.post(f"/projects/{project_id}/delete", data={"password": ""})
+    assert resp.status_code == 302
+    assert "error=" in resp.headers["Location"]
+
+    still_there = client.get(f"/projects/{project_id}")
+    assert still_there.status_code == 200
+
+
+def test_delete_project_rejects_wrong_password(client, jurisdiction_id, monkeypatch):
+    project_id = _new_project(client, jurisdiction_id, "Delete Wrong Password Test Project")
+    monkeypatch.setenv("DELETE_PASSWORD", "correct-horse-battery-staple")
+
+    resp = client.post(f"/projects/{project_id}/delete", data={"password": "guess"})
+    assert resp.status_code == 302
+    assert "error=" in resp.headers["Location"]
+
+    still_there = client.get(f"/projects/{project_id}")
+    assert still_there.status_code == 200
+
+
+def test_delete_project_succeeds_with_correct_password(client, jurisdiction_id, monkeypatch):
+    project_id = _new_project(client, jurisdiction_id, "Delete Correct Password Test Project")
+    monkeypatch.setenv("DELETE_PASSWORD", "correct-horse-battery-staple")
+
+    resp = client.post(f"/projects/{project_id}/delete", data={"password": "correct-horse-battery-staple"})
+    assert resp.status_code == 302
+    assert "deleted=" in resp.headers["Location"]
+
+    gone = client.get(f"/projects/{project_id}", follow_redirects=True)
+    assert gone.status_code == 200
+    assert b"Project not found" in gone.data
+
+
 def _new_project(client, jurisdiction_id, name):
     # Isolated from the module-scoped `project_id` fixture other tests
     # share/depend on the exact contents of - these tests ingest their own

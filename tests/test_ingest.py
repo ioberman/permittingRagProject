@@ -1,7 +1,9 @@
 import pytest
 
+from app.clause_extraction import extract_and_store_clauses
 from app.ingest import (
     create_submission,
+    delete_project_cascade,
     find_project,
     get_latest_or_create_submission,
     get_or_create_project,
@@ -10,7 +12,21 @@ from app.ingest import (
     infer_doc_type,
     sequence_to_revision_label,
 )
-from app.models import Discipline, DocType
+from app.models import (
+    Clause,
+    CheckType,
+    Discipline,
+    Document,
+    DocumentClause,
+    DocumentSeries,
+    DocType,
+    Flag,
+    FlagCitation,
+    FlagSeverity,
+    LLMCall,
+    Project,
+    Submission,
+)
 
 
 def test_infer_doc_type_recognized():
@@ -99,3 +115,61 @@ def test_ingest_document_dedups_identical_content_across_sheets(session, storage
     )
 
     assert doc1.file_uri == doc2.file_uri
+
+
+def test_delete_project_cascade_removes_everything_and_spares_other_projects(session, storage, jurisdiction):
+    project = get_or_create_project(session, "Doomed Project", jurisdiction.id)
+    other_project = get_or_create_project(session, "Untouched Project", jurisdiction.id)
+    other_submission = create_submission(session, other_project.id)
+
+    submission = create_submission(session, project.id)
+    document = ingest_document(
+        session, submission, "S-201", Discipline.STRUCTURAL, "Foundation Plan",
+        DocType.SPEC, b"1.1 Footing depth shall be 5 feet.", "s201.txt",
+    )
+    extract_and_store_clauses(session, document)
+    session.commit()
+
+    clause = session.query(Clause).filter_by(document_series_id=document.document_series_id).first()
+    assert clause is not None
+
+    llm_call = LLMCall(
+        submission_id=submission.id, clause_id=clause.id, check_type=CheckType.JURISDICTION,
+        engine="mock", model="mock-keyword-heuristic", prompt="p", raw_response="r", latency_ms=1,
+    )
+    session.add(llm_call)
+    session.flush()
+    flag = Flag(
+        submission_id=submission.id, clause_id=clause.id, llm_call_id=llm_call.id,
+        check_type=CheckType.JURISDICTION, severity=FlagSeverity.HIGH, explanation="e",
+        model="mock-keyword-heuristic", is_simulated=True,
+    )
+    session.add(flag)
+    session.flush()
+    citation = FlagCitation(flag_id=flag.id, clause_id=clause.id)
+    session.add(citation)
+    session.commit()
+
+    # Captured before deletion - the ORM objects themselves get expired by
+    # the commit below, and accessing an attribute on an expired-but-deleted
+    # instance raises ObjectDeletedError instead of just reading stale data.
+    project_id = project.id
+    document_id, clause_id, llm_call_id, flag_id, citation_id = document.id, clause.id, llm_call.id, flag.id, citation.id
+    other_project_id, other_submission_id = other_project.id, other_submission.id
+
+    delete_project_cascade(session, project_id)
+    session.commit()
+
+    assert session.get(Project, project_id) is None
+    assert session.query(Submission).filter_by(project_id=project_id).count() == 0
+    assert session.query(DocumentSeries).filter_by(project_id=project_id).count() == 0
+    assert session.query(Document).filter_by(id=document_id).count() == 0
+    assert session.query(DocumentClause).filter_by(document_id=document_id).count() == 0
+    assert session.query(Clause).filter_by(id=clause_id).count() == 0
+    assert session.query(LLMCall).filter_by(id=llm_call_id).count() == 0
+    assert session.query(Flag).filter_by(id=flag_id).count() == 0
+    assert session.query(FlagCitation).filter_by(id=citation_id).count() == 0
+
+    # A second, unrelated project must be completely unaffected.
+    assert session.get(Project, other_project_id) is not None
+    assert session.get(Submission, other_submission_id) is not None

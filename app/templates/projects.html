@@ -7,6 +7,7 @@
 <p class="lede">Every project you're tracking, its jurisdiction, and where each of the two independent checks currently stand.</p>
 
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if deleted %}<p class="info">Deleted "{{ deleted }}".</p>{% endif %}
 
 {% if not jurisdictions %}
 <p class="warn">No jurisdictions have reference documentation loaded yet -
@@ -28,14 +29,15 @@
 <div class="card-table">
 <table class="projects-table">
   <colgroup>
-    <col style="width: 26%">
-    <col style="width: 18%">
+    <col style="width: 24%">
+    <col style="width: 16%">
+    <col style="width: 12%">
+    <col style="width: 9%">
     <col style="width: 14%">
+    <col style="width: 15%">
     <col style="width: 10%">
-    <col style="width: 16%">
-    <col style="width: 16%">
   </colgroup>
-  <tr><th>Project</th><th>Jurisdiction</th><th>Latest revision</th><th>Sheets</th><th>vs. code</th><th>cross-discipline</th></tr>
+  <tr><th>Project</th><th>Jurisdiction</th><th>Latest revision</th><th>Sheets</th><th>vs. code</th><th>cross-discipline</th><th></th></tr>
   {% for row in rows %}
   <tr>
     <td><a href="/projects/{{ row.id }}">{{ row.name }}</a></td>
@@ -44,12 +46,35 @@
     <td>{{ row.sheet_count }}</td>
     <td><span class="badge {{ row.jurisdiction_status_class }}">{{ row.jurisdiction_status }}</span></td>
     <td><span class="badge {{ row.cross_status_class }}">{{ row.cross_status }}</span></td>
+    <td>
+      <form method="post" action="/projects/{{ row.id }}/delete" class="delete-project-form" data-project-name="{{ row.name }}">
+        <input type="hidden" name="password">
+        <button type="submit" class="btn ghost sm danger">Delete</button>
+      </form>
+    </td>
   </tr>
   {% endfor %}
   {% if not rows %}
-  <tr><td colspan="6" class="meta">No projects yet - create one above.</td></tr>
+  <tr><td colspan="7" class="meta">No projects yet - create one above.</td></tr>
   {% endif %}
 </table>
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Password-gated per CLAUDE.md's "no auth yet" tradeoff - prompt() is a
+  // real dialog (unlike an inline text field, it can't be pre-filled/
+  // autofilled by the browser), and doubles as the confirmation step, so
+  // there's no separate confirm() on top of it.
+  document.querySelectorAll('.delete-project-form').forEach((form) => {
+    form.addEventListener('submit', (e) => {
+      const name = form.dataset.projectName;
+      const password = window.prompt(`Type the delete password to permanently delete "${name}":`);
+      if (password === null) { e.preventDefault(); return; }
+      form.querySelector('input[name="password"]').value = password;
+    });
+  });
+</script>
 {% endblock %}

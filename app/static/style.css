@@ -286,6 +286,8 @@ button:hover, .btn:hover { background: var(--accent); border-color: var(--accent
 button:active, .btn:active { transform: translateY(1px); }
 .btn.ghost { background: transparent; color: var(--ink); border-color: var(--rule-strong); }
 .btn.ghost:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.btn.ghost.danger { color: var(--danger); }
+.btn.ghost.danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 .btn.sm { padding: 0.35rem 0.8rem; font-size: 0.78rem; }
 .autofilled { background: var(--accent-soft) !important; }
 
