@@ -246,6 +246,12 @@ th {
   text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
   font-weight: 700; padding: 1rem 1rem 0.7rem 0; border-bottom: 1px solid var(--rule-strong);
 }
+/* Short, single-word-ish header labels that don't need to wrap - forcing
+   nowrap here (rather than on every table's th, some of which have longer
+   headers like metrics.html's "High-severity, still open" that rely on
+   wrapping to fit) guards against the column being narrowed again later
+   and silently reintroducing the mid-word wrap this was fixed for. */
+.flags-table th { white-space: nowrap; }
 td { padding: 0.9rem 1rem 0.9rem 0; border-bottom: 1px solid var(--rule); font-size: 0.92rem; vertical-align: top; color: var(--ink); }
 /* Last column never needs trailing gutter - nothing sits to its right. */
 th:last-child, td:last-child { padding-right: 0; }
