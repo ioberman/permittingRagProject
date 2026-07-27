@@ -7,7 +7,7 @@
 <p class="lede">Only jurisdictions listed here (with at least one document loaded) are selectable when creating a project.</p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
-<form method="post" action="/jurisdictions/documents" enctype="multipart/form-data">
+<form method="post" action="/jurisdictions/documents" enctype="multipart/form-data" id="jurisdiction-upload-form">
   <fieldset>
     <label>Jurisdiction name
       <input name="jurisdiction_name" list="jurisdiction_names" required>
@@ -15,13 +15,11 @@
         {% for j in jurisdictions %}<option value="{{ j.name }}">{% endfor %}
       </datalist>
     </label>
-    <label>Document title
-      <input name="title" required>
+    <label>Files <span class="meta">(select one or more code books, amendments, or permit guides)</span>
+      <input type="file" name="files" id="jurisdiction-files" multiple required>
     </label>
-    <label>File (code book, amendment, etc.)
-      <input type="file" name="file" required>
-    </label>
-    <button type="submit">Add reference document</button>
+    <div id="jurisdiction-file-rows"></div>
+    <button type="submit" id="jurisdiction-upload-submit">Add reference document(s)</button>
   </fieldset>
 </form>
 
@@ -50,4 +48,47 @@
 </table>
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const jurisdictionFilesInput = document.getElementById('jurisdiction-files');
+  const jurisdictionFileRows = document.getElementById('jurisdiction-file-rows');
+
+  function titleFromFilename(filename) {
+    const stem = filename.replace(/\.[^.]+$/, '');
+    return stem.replace(/[_-]+/g, ' ').trim();
+  }
+
+  function renderJurisdictionFileRows() {
+    jurisdictionFileRows.replaceChildren();
+    Array.from(jurisdictionFilesInput.files).forEach((file) => {
+      const row = document.createElement('div');
+      row.className = 'batch-row';
+
+      const header = document.createElement('div');
+      header.className = 'batch-row-header';
+      const filename = document.createElement('div');
+      filename.className = 'batch-row-filename';
+      filename.textContent = file.name;
+      header.appendChild(filename);
+
+      const fields = document.createElement('div');
+      fields.className = 'batch-row-fields';
+      const label = document.createElement('label');
+      label.textContent = 'Document title';
+      const title = document.createElement('input');
+      title.name = 'titles';
+      title.value = titleFromFilename(file.name);
+      title.required = true;
+      label.appendChild(title);
+      fields.appendChild(label);
+
+      row.append(header, fields);
+      jurisdictionFileRows.appendChild(row);
+    });
+  }
+
+  jurisdictionFilesInput.addEventListener('change', renderJurisdictionFileRows);
+</script>
 {% endblock %}

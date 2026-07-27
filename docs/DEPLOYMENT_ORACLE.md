@@ -196,6 +196,24 @@ hand someone, and browsers will flag it as insecure. To get a real
    step 2), and you can close port 8000 to the outside world entirely once
    nginx is the only public entry point.
 
+### Allow document uploads through nginx
+
+Nginx defaults to a 1 MB request-body limit and returns `413 Request Entity
+Too Large` before Flask sees a larger upload. Install the repository's 100 MB
+request limit after nginx is configured:
+
+```bash
+sudo cp deploy/oracle/nginx-upload-limits.conf \
+  /etc/nginx/conf.d/plan-review-upload-limits.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+The limit applies to the complete request, so all files in a multi-document
+upload must fit within 100 MB together. To choose another limit, update both
+the nginx file and `MAX_UPLOAD_MB` in `/opt/plan-review-copilot/.env`, then
+reload nginx and restart `plan-review-copilot`.
+
 This is a genuinely separate chunk of work from getting the app running at
 all - worth doing once the base setup above is confirmed working, not
 before. This is actually done on the live instance now (`permitting.dev`)
