@@ -21,60 +21,86 @@
 </div>
 <p class="meta" id="flags-links">{{ flags|length }} flag(s) found &middot; <a href="/projects/{{ project_id }}/audit-report" class="action-link">view audit report &rarr;</a> &middot; <a href="/metrics" class="action-link">view metrics &rarr;</a></p>
 
-<div class="filter-tabs" id="flags-filter-tabs">
-  <a class="filter-tab {{ 'active' if type_filter == 'all' }}" href="?type=all">All ({{ jurisdiction_count + cross_discipline_count }})</a>
-  <a class="filter-tab {{ 'active' if type_filter == 'jurisdiction' }}" href="?type=jurisdiction">vs. code ({{ jurisdiction_count }})</a>
-  <a class="filter-tab {{ 'active' if type_filter == 'cross_discipline' }}" href="?type=cross_discipline">Cross-discipline ({{ cross_discipline_count }})</a>
+<div class="flags-toolbar">
+  <div class="filter-tabs" id="flags-filter-tabs">
+    <a class="filter-tab {{ 'active' if type_filter == 'all' }}" href="?type=all">All ({{ jurisdiction_count + cross_discipline_count }})</a>
+    <a class="filter-tab {{ 'active' if type_filter == 'jurisdiction' }}" href="?type=jurisdiction">vs. code ({{ jurisdiction_count }})</a>
+    <a class="filter-tab {{ 'active' if type_filter == 'cross_discipline' }}" href="?type=cross_discipline">Cross-discipline ({{ cross_discipline_count }})</a>
+  </div>
+  <div class="findings-summary" id="findings-summary">
+    <span class="findings-summary__chip"><span class="dot sev-dot-high"></span>{{ high_count }} high</span>
+    <span class="findings-summary__chip"><span class="dot sev-dot-medium"></span>{{ medium_count }} medium</span>
+    <span class="findings-summary__chip"><span class="dot sev-dot-low"></span>{{ low_count }} low</span>
+  </div>
 </div>
 
-<div class="card-table">
-<table class="flags-table">
-  <colgroup>
-    <col style="width: 7%">
-    <col style="width: 9%">
-    <col style="width: 8%">
-    <col style="width: 9%">
-    <col style="width: 24%">
-    <col style="width: 9%">
-    <col style="width: 9%">
-    <col style="width: 16%">
-    <col style="width: 9%">
-  </colgroup>
-  <tr id="flags-table-header"><th>Type</th><th>Severity</th><th>Clause</th><th>Found in</th><th>Explanation</th><th>Cited</th><th>Model</th><th id="flags-status-header">Status</th><th></th></tr>
+<div class="flag-cards" id="flags-cards">
   {% for f in flags %}
-  <tr>
-    <td>{{ "cross-discipline" if f.check_type.value == "cross_discipline" else "vs. code" }}</td>
-    <td class="sev-{{ f.severity.value }}">{{ f.severity.value }}</td>
-    <td class="label">{{ f.clause.clause_label }}</td>
-    <td>{{ f.submission.revision_label }}</td>
-    <td>{{ f.explanation }}</td>
-    <td>
-      {% for c in f.citations %}
-        {% if c.jurisdiction_clause %}<div>{{ c.jurisdiction_clause.clause_label }}</div>{% endif %}
-        {% if c.clause %}<div>{{ c.clause.series.discipline.value }} {{ c.clause.clause_label }}</div>{% endif %}
-      {% endfor %}
-    </td>
-    <td>
-      {{ f.model }}
-      {% if f.is_simulated %}<span class="placeholder-badge" title="Keyword heuristic, not real model reasoning">simulated</span>{% endif %}
-    </td>
-    <td>
-      <form class="flag-status-form" method="post" action="/flags/{{ f.id }}/status">
-        <span class="status-pill status-{{ f.status.value }}">{{ f.status.value.replace('_', ' ') }}</span>
-        <select name="status" aria-label="Reviewer status">
-          {% for s in ["open", "acknowledged", "resolved", "false_positive"] %}
-          <option value="{{ s }}" {% if f.status.value == s %}selected{% endif %}>{{ s.replace('_', ' ') }}</option>
-          {% endfor %}
-        </select>
-        <input type="text" name="status_note" placeholder="note (optional)" value="{{ f.status_note or '' }}">
-        <button type="submit" class="btn sm">Save</button>
-      </form>
-    </td>
-    <td><a href="/flags/{{ f.id }}/reasoning">view reasoning</a></td>
-  </tr>
+  <details class="flag-card flag-card--{{ f.severity.value }}">
+    <summary class="flag-card-summary">
+      <span class="flag-card-dot sev-dot-{{ f.severity.value }}" title="{{ f.severity.value }} severity"></span>
+      <span class="flag-card-type">{{ "cross-discipline" if f.check_type.value == "cross_discipline" else "vs. code" }}</span>
+      <span class="flag-card-summary-sep">&middot;</span>
+      <span class="flag-card-title">{{ f.clause.series.title }}</span>
+      <span class="status-pill status-{{ f.status.value }}">{{ f.status.value.replace('_', ' ') }}</span>
+    </summary>
+    <div class="flag-card-body">
+      <div class="flag-card-main">
+        <div class="flag-card-block">
+          <div class="field-label">Explanation</div>
+          <p class="flag-card-explanation">{{ f.explanation }}</p>
+        </div>
+        <div class="flag-card-row">
+          <div class="flag-card-col">
+            <div class="field-label">Cited</div>
+            <div class="flag-card-citations">
+              <span>
+                {% for c in f.citations %}
+                  {% if c.jurisdiction_clause %}{{ c.jurisdiction_clause.clause_label }}{% endif %}
+                  {% if c.clause %}{{ c.clause.series.discipline.value }} {{ c.clause.clause_label }}{% endif %}
+                  {%- if not loop.last %}, {% endif -%}
+                {% endfor %}
+              </span>
+              {% set clause_citations = f.citations|selectattr('clause')|list %}
+              {% if clause_citations %}
+              <div class="flag-card-citation-actions">
+                {% for c in clause_citations %}
+                <a href="#" class="btn ghost sm" title="Open in document viewer" onclick="openViewerModalForClause(event, '{{ c.clause.id }}')">locate</a>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="flag-card-col">
+            <div class="field-label">Model</div>
+            <div class="flag-card-model">
+              <span>
+                {{ f.model }}
+                {% if f.is_simulated %}<span class="placeholder-badge" title="Keyword heuristic, not real model reasoning">simulated</span>{% endif %}
+              </span>
+              <a href="/flags/{{ f.id }}/reasoning" class="btn ghost sm">view reasoning</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="flag-card-status">
+        <div class="field-label">Status</div>
+        <form class="flag-status-form" method="post" action="/flags/{{ f.id }}/status">
+          <select name="status" aria-label="Reviewer status">
+            {% for s in ["open", "acknowledged", "resolved", "false_positive"] %}
+            <option value="{{ s }}" {% if f.status.value == s %}selected{% endif %}>{{ s.replace('_', ' ') }}</option>
+            {% endfor %}
+          </select>
+          <textarea name="status_note" placeholder="note (optional)">{{ f.status_note or '' }}</textarea>
+          <button type="submit" class="btn sm">Save</button>
+        </form>
+      </div>
+    </div>
+  </details>
   {% endfor %}
-</table>
 </div>
+
+{% include "_viewer_modal.html" %}
 
 {% endblock %}
 
@@ -83,8 +109,8 @@
   function startFlagsTour() {
     startTour([
       { selector: '#flags-filter-tabs', text: 'Filter by check type - jurisdiction-code violations vs. cross-discipline coordination clashes.' },
-      { selector: '#flags-table-header', text: 'Every flag shows its severity, the clause it\'s about, a plain-English explanation, and the exact citations backing it up - never an unexplained miss.' },
-      { selector: '#flags-status-header', text: 'Mark each flag\'s real-world outcome here - acknowledged, resolved, or false positive. This rolls up into the reviewer-confirmed precision figure on the Metrics page.' },
+      { selector: '#flags-cards', text: 'Every flag is a card showing its severity, the clause it\'s about, and its status at a glance - expand any card for the full explanation and the exact citations backing it up, never an unexplained miss.' },
+      { selector: '.status-pill', text: 'Mark each flag\'s real-world outcome inside its card - acknowledged, resolved, or false positive. This rolls up into the reviewer-confirmed precision figure on the Metrics page.' },
       { selector: '#flags-links', text: 'Export a timestamped audit report, or check the Metrics dashboard for precision and cycle-time numbers.' },
     ]);
   }

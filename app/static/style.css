@@ -199,19 +199,80 @@ h2 {
 .status-resolved { background: var(--accent-soft); color: var(--accent); }
 .status-false_positive { background: var(--rule); color: var(--ink-soft); }
 
-.flag-status-form { display: flex; flex-direction: column; gap: 0.4rem; width: 100%; min-width: 0; }
-.flag-status-form select, .flag-status-form input[type="text"] {
-  font-size: 0.82rem; padding: 0.35rem 0.5rem; width: 100%; min-width: 0; box-sizing: border-box;
+.flag-status-form { display: flex; flex-direction: column; gap: 0.4rem; width: 100%; min-width: 0; flex: 1; }
+.flag-status-form select {
+  font-size: 0.82rem; padding: 0.35rem 0.5rem; width: 100%; min-width: 0; box-sizing: border-box; flex: none;
 }
-.flag-status-form .btn.sm { align-self: flex-start; }
+.flag-status-form textarea {
+  flex: 1; min-height: 4rem; resize: vertical; font: inherit; font-size: 0.82rem;
+  padding: 0.35rem 0.5rem; width: 100%; min-width: 0; box-sizing: border-box;
+}
+.flag-status-form .btn.sm { align-self: flex-start; flex: none; }
 
-/* table-layout: fixed - the flags table has a wide status-editing column
-   (select + text input + button) that, under the default auto layout,
-   claimed space by squeezing every other column below its content's
-   intrinsic width, wrapping header text mid-word and spilling cell content
-   into its neighbor (the status pill visually overlapped "view reasoning").
-   Fixed layout + colgroup percentages give every column a stable width that
-   content wraps inside instead of fighting over. */
+/* ---------- Flag cards ---------- */
+
+.flags-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+.flags-toolbar .filter-tabs, .flags-toolbar .findings-summary { margin-bottom: 0; }
+
+.findings-summary { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.findings-summary__chip {
+  display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 600;
+  color: var(--ink-soft); padding: 0.25rem 0.7rem; border-radius: 999px; border: 1px solid var(--rule-strong);
+  background: var(--surface);
+}
+.findings-summary__chip .dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+.flag-cards { display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 2rem; }
+.flag-card {
+  background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--rule-strong);
+  border-radius: 8px; box-shadow: var(--shadow); overflow: hidden;
+}
+.flag-card--high { border-left-color: var(--danger); }
+.flag-card--medium { border-left-color: var(--warn); }
+.flag-card--low { border-left-color: var(--ink-faint); }
+
+.flag-card-summary {
+  list-style: none; cursor: pointer; padding: 0.85rem 1.2rem; display: flex; align-items: center;
+  gap: 0.75rem; flex-wrap: wrap; font-size: 0.88rem;
+}
+.flag-card-summary::-webkit-details-marker { display: none; }
+.flag-card-summary::after { content: "+"; font-size: 1.2rem; color: var(--ink-faint); font-weight: 400; }
+.flag-card[open] .flag-card-summary::after { content: "\2212"; }
+.flag-card[open] .flag-card-summary { border-bottom: 1px solid var(--rule); }
+
+.flag-card-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; }
+.sev-dot-high { background: var(--danger); }
+.sev-dot-medium { background: var(--warn); }
+.sev-dot-low { background: var(--ink-faint); }
+
+.flag-card-type {
+  text-transform: uppercase; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: var(--ink-faint);
+  flex-shrink: 0;
+}
+.flag-card-summary-sep { color: var(--rule-strong); flex-shrink: 0; }
+.flag-card-title { font-weight: 600; color: var(--ink); }
+/* Pushes both the status pill and everything after it (the +/- indicator)
+   to the far right in one group - putting margin-left: auto on the
+   indicator too, rather than just here, would split the leftover space
+   between the two instead of grouping them. */
+.flag-card-summary .status-pill { align-self: center; margin-bottom: 0; margin-left: auto; flex-shrink: 0; }
+
+.flag-card-body { padding: 1.4rem 1.2rem 1.2rem; display: flex; gap: 1.75rem; flex-wrap: wrap; }
+.flag-card-block { display: flex; flex-direction: column; gap: 0.6rem; }
+.flag-card-explanation { margin: 0; color: var(--ink); font-size: 0.92rem; line-height: 1.5; }
+
+.flag-card-main { flex: 2; min-width: 16rem; display: flex; flex-direction: column; gap: 1.1rem; }
+.flag-card-row { display: flex; gap: 1.75rem; flex-wrap: wrap; }
+.flag-card-col { flex: 1; min-width: 10rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.flag-card-citations { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; font-size: 0.88rem; }
+.flag-card-citation-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.flag-card-model { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
+
+.flag-card-status {
+  flex: 1; min-width: 12rem; max-width: 17rem; background: var(--bg); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.6rem;
+}
+
 /* table-layout: fixed on every data table with 4+ columns or any column
    whose content can't wrap - table-layout: auto sizes columns off content
    across ALL rows, so one nowrap/wide column (a form, a pill, a long
@@ -220,9 +281,9 @@ h2 {
    each column a stable width that content wraps inside instead of fighting
    over. Simple 2-3 column tables with only short/wrapping content (e.g.
    diff.html's) are low-risk and left on the default auto layout. */
-.flags-table, .metrics-table, .candidates-table, .jurisdictions-table,
+.metrics-table, .candidates-table, .jurisdictions-table,
 .clauses-table, .audit-table, .projects-table, .sheets-table { table-layout: fixed; }
-.flags-table td, .flags-table th, .metrics-table td, .metrics-table th,
+.metrics-table td, .metrics-table th,
 .candidates-table td, .candidates-table th, .jurisdictions-table td, .jurisdictions-table th,
 .clauses-table td, .clauses-table th, .audit-table td, .audit-table th,
 .projects-table td, .projects-table th, .sheets-table td, .sheets-table th { overflow-wrap: break-word; }
@@ -246,12 +307,6 @@ th {
   text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
   font-weight: 700; padding: 1rem 1rem 0.7rem 0; border-bottom: 1px solid var(--rule-strong);
 }
-/* Short, single-word-ish header labels that don't need to wrap - forcing
-   nowrap here (rather than on every table's th, some of which have longer
-   headers like metrics.html's "High-severity, still open" that rely on
-   wrapping to fit) guards against the column being narrowed again later
-   and silently reintroducing the mid-word wrap this was fixed for. */
-.flags-table th { white-space: nowrap; }
 td { padding: 0.9rem 1rem 0.9rem 0; border-bottom: 1px solid var(--rule); font-size: 0.92rem; vertical-align: top; color: var(--ink); }
 /* Last column never needs trailing gutter - nothing sits to its right. */
 th:last-child, td:last-child { padding-right: 0; }
@@ -329,7 +384,7 @@ pre {
 .meta-line { color: var(--ink-soft); font-size: 0.88rem; margin-bottom: 1.75rem; display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: center; }
 .meta-line .badge { font-size: 0.86rem; }
 
-.check-panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); margin-bottom: 2rem; overflow: hidden; }
+.check-panel { overflow: hidden; }
 .check-row { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.4rem; gap: 1rem; flex-wrap: wrap; }
 .check-row + .check-row { border-top: 1px solid var(--rule); }
 .check-info .name { font-weight: 600; font-size: 0.92rem; margin-bottom: 0.2rem; }
@@ -382,6 +437,39 @@ pre {
 
 .sheets-toolbar { display: flex; justify-content: space-between; align-items: baseline; margin: 2.75rem 0 1rem; }
 .sheets-toolbar h2 { margin: 0; }
+
+.view-doc-link { color: var(--accent); font-size: 0.85rem; }
+.cell-sub { display: block; color: var(--ink-faint); font-size: 0.76rem; margin-top: 0.15rem; }
+
+/* ---------- Inline document viewer (modal) ---------- */
+
+.viewer-modal { max-width: 1100px; height: 88vh; }
+.viewer-modal .modal-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.viewer-controls { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.viewer-controls select, .viewer-controls input[type="search"] { flex: 1; min-width: 10rem; max-width: 20rem; }
+.viewer-pages {
+  flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center;
+  gap: 1rem; background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem;
+}
+.viewer-page-wrap { position: relative; max-width: 100%; }
+.viewer-page { display: block; max-width: 100%; border: 1px solid var(--rule-strong); box-shadow: var(--shadow); }
+.viewer-pages--text { align-items: stretch; }
+.viewer-text {
+  white-space: pre-wrap; font-size: 0.85rem; line-height: 1.6; color: var(--ink-soft);
+  max-width: 72ch; margin: 0 auto; padding: 0.5rem 0;
+}
+mark.clause-highlight { background: var(--accent-soft); color: var(--ink); border-bottom: 2px solid var(--accent); padding: 0 0.1rem; }
+.viewer-page--highlighted { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.clause-bbox-highlight {
+  position: absolute; border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 2px; pointer-events: none;
+}
+.viewer-locate-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 6px; padding: 0.55rem 0.9rem; margin-bottom: 1rem; font-size: 0.85rem; font-weight: 600;
+}
 
 /* ---------- Grouped sections (diff view - one card per sheet) ---------- */
 

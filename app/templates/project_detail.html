@@ -30,6 +30,8 @@
 <p class="warn">No sheets yet for: {{ missing_disciplines|join(', ') }}</p>
 {% endif %}
 
+<details class="collapsible-form" open id="check-panel-section">
+<summary>Run checks</summary>
 <div class="check-panel">
   <form method="post" action="/projects/{{ project.id }}/check" class="check-row" id="jurisdiction-check-form">
     <div class="check-info">
@@ -78,6 +80,7 @@
     </form>
   </div>
 </div>
+</details>
 
 <div class="sheets-toolbar" id="sheets-toolbar">
   <h2>Current sheets{% if latest_submission %} &middot; {{ latest_submission.revision_label }}{% endif %}</h2>
@@ -88,22 +91,26 @@
   <colgroup>
     <col style="width: 8%">
     <col style="width: 13%">
-    <col style="width: 18%">
+    <col style="width: 19%">
     <col style="width: 6%">
-    <col style="width: 14%">
+    <col style="width: 15%">
     <col style="width: 8%">
-    <col style="width: 13%">
-    <col style="width: 11%">
-    <col style="width: 9%">
+    <col style="width: 17%">
+    <col style="width: 14%">
   </colgroup>
-  <tr><th>Sheet</th><th>Discipline</th><th>Title</th><th>Type</th><th>File</th><th>Clauses</th><th>Submitted by</th><th>Ingested</th><th></th></tr>
+  <tr><th>Sheet</th><th>Discipline</th><th>Title</th><th>Type</th><th>File</th><th>Clauses</th><th>Submitted</th><th></th></tr>
   {% for row in sheet_rows %}
   <tr>
     <td class="label">{{ row.sheet }}</td>
     <td><span class="discipline-pill">{{ row.discipline.replace('_', ' ') }}</span></td>
     <td>{{ row.title }}</td>
     <td>{{ row.doc_type }}</td>
-    <td><a href="/files/{{ row.id }}">{{ row.filename }}</a></td>
+    <td>
+      <a href="/files/{{ row.id }}">{{ row.filename }}</a>
+      {% if row.has_preview %}
+      &middot; <a href="#" class="view-doc-link" onclick="viewDocument(event, '{{ row.id }}')">View</a>
+      {% endif %}
+    </td>
     <td>
       {% if row.clause_count %}<a href="/documents/{{ row.id }}/clauses">{{ row.clause_count }}</a>{% else %}0{% endif %}
     </td>
@@ -112,8 +119,8 @@
       {% if row.submitted_by_is_placeholder %}
       <span class="placeholder-badge" title="Hardcoded until web auth is wired up - will show the real logged-in user">placeholder</span>
       {% endif %}
+      <span class="cell-sub">{{ row.ingested_at }}</span>
     </td>
-    <td>{{ row.ingested_at }}</td>
     <td>
       <form method="post" action="/documents/{{ row.id }}/revise" class="revise-form">
         <button type="submit" class="btn ghost sm" title="Start a new revision pre-filled with this sheet's info">Revise</button>
@@ -127,7 +134,7 @@
 <p class="meta">No sheets ingested yet - add one below.</p>
 {% endif %}
 
-<details class="collapsible-form" open id="add-sheet-section">
+<details class="collapsible-form" {% if not sheet_rows or revising %}open{% endif %} id="add-sheet-section">
   <summary>{{ 'Add a sheet' if revising else 'Add sheets' }}</summary>
   {% if revising %}
   <form method="post" action="/projects/{{ project.id }}/ingest" enctype="multipart/form-data" class="form-body">
@@ -203,6 +210,8 @@
     </div>
   </div>
 </div>
+
+{% include "_viewer_modal.html" %}
 
 {% endblock %}
 

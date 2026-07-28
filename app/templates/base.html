@@ -376,6 +376,14 @@ erDiagram
       var step = tourState.steps[tourState.index];
       var target = document.querySelector(step.selector);
       if (!target) { tourStep(1); return; }
+
+      // A step's target can sit inside a collapsed <details> (e.g. "Add
+      // sheets" once a project already has sheets) - closed details content
+      // isn't rendered, so getBoundingClientRect below would measure a
+      // zero-size box. Force it open rather than skip the step.
+      var container = target.closest('details:not([open])');
+      if (container) container.open = true;
+
       target.scrollIntoView({ block: 'center', behavior: 'smooth' });
 
       // A fixed delay rather than waiting on a scroll-end event - not

@@ -27,6 +27,7 @@ import threading
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
+import fitz  # PyMuPDF
 from flask import Flask, g, jsonify, redirect, render_template, request, Response
 
 # stdout is block-buffered, not line-buffered, once it's piped/redirected
@@ -53,6 +54,7 @@ from app.clause_extraction import (
     SHEET_NUMBER_TOKEN,
     extract_and_store_clauses,
     extract_and_store_jurisdiction_clauses,
+    extract_pages,
     sniff_sheet_number,
 )
 from app.conflict_detection import check_submission_for_conflicts
@@ -80,7 +82,9 @@ from app.models import (
     Document,
     DocumentClause,
     DocumentSeries,
+    DocType,
     Flag,
+    FlagSeverity,
     FlagStatus,
     Jurisdiction,
     JurisdictionClause,
@@ -268,6 +272,79 @@ def _check_status(session, project_id, has_submission, check_type):
     return f"clean ({last_call.engine})", "status-ok"
 
 
+def _current_document_for_clause(session, clause: Clause) -> Document | None:
+    """The clause's current sheet version, if that sheet is still part of the
+    project's current state - a clause can outlive the specific Document it
+    was first extracted from once a sheet is revised (see Clause's docstring:
+    "reused across revisions when unchanged"), so this re-resolves by series
+    rather than trusting first_seen_document_id."""
+    documents = current_documents_for_project(session, clause.series.project_id)
+    return next((d for d in documents if d.document_series_id == clause.document_series_id), None)
+
+
+def _find_clause_bbox(document: Document, page_number: int, clause_text: str) -> list[float] | None:
+    """Best-effort bounding box for where a clause's text starts on its page,
+    as [x0,y0,x1,y1] fractions of page width/height (so the frontend can
+    position an overlay at any render DPI without also being told the page's
+    point size). Computed on demand from the clause's first line via
+    fitz's search_for(), rather than captured once at extraction time and
+    stored on Clause.location: redaction blanks table/margin regions but
+    doesn't move surrounding text (see extract_pages()'s docstring), so
+    searching a fresh, unredacted open of the page finds the same position -
+    which means this works retroactively for every clause already extracted
+    before this existed, with no schema change or backfill.
+
+    Returns None on anything that isn't a clean single-match anchor (multi-line
+    clause whose first line matches more than once, or drifted text) - a
+    missing box degrades to a whole-page highlight, not a wrong one."""
+    anchor = clause_text.strip().splitlines()[0].strip()
+    if not anchor:
+        return None
+    try:
+        content = storage.load(document.file_uri)
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            if page_number < 1 or page_number > doc.page_count:
+                return None
+            page = doc[page_number - 1]
+            rects = page.search_for(anchor)
+            if len(rects) != 1:
+                return None
+            r = rects[0]
+            return [r.x0 / page.rect.width, r.y0 / page.rect.height, r.x1 / page.rect.width, r.y1 / page.rect.height]
+    except Exception:
+        return None
+
+
+def _viewer_documents_for_project(session, project_id: str) -> list[dict]:
+    """Previewable documents for the shared viewer modal's dropdown (see
+    templates/_viewer_modal.html) - both project_detail and flags pages need
+    this same list, so it lives in one place rather than each page rebuilding
+    its own version of "current sheets, previewable ones only"."""
+    documents = sorted(
+        current_documents_for_project(session, project_id),
+        key=lambda d: (d.series.discipline.value, d.series.sheet_number),
+    )
+    return [
+        {"id": d.id, "sheet": d.series.sheet_number, "title": d.series.title}
+        for d in documents
+        if _document_has_preview(d)
+    ]
+
+
+def _document_has_preview(document) -> bool:
+    """Whether the inline viewer can render something for this document:
+    PDFs always (rasterized page images), SPEC docs only if they're a format
+    extract_pages() actually handles (.txt/.docx) - legacy .doc/.rtf and BIM
+    files have no extraction path today, so no preview to show."""
+    if document.doc_type == DocType.PDF_2D:
+        return True
+    if document.doc_type == DocType.SPEC:
+        filename = (document.metadata_ or {}).get("original_filename") or document.file_uri
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        return ext in ("txt", "docx")
+    return False
+
+
 def _project_summary_rows(session):
     projects = session.query(Project).order_by(Project.name).all()
     rows = []
@@ -426,6 +503,7 @@ def project_detail(project_id):
             "discipline": d.series.discipline.value,
             "doc_type": d.doc_type.value,
             "filename": (d.metadata_ or {}).get("original_filename") or d.file_uri.rsplit("/", 1)[-1],
+            "has_preview": _document_has_preview(d),
             "clause_count": session.query(DocumentClause).filter_by(document_id=d.id).count(),
             "submitted_by": d.submission.submitted_by,
             "submitted_by_is_placeholder": d.submission.submitted_by == DEFAULT_SUBMITTED_BY,
@@ -452,6 +530,7 @@ def project_detail(project_id):
         submission_rows=submission_rows,
         latest_submission=latest_submission,
         sheet_rows=sheet_rows,
+        viewer_documents=_viewer_documents_for_project(session, project.id),
         missing_disciplines=missing_disciplines,
         disciplines=[d.value for d in Discipline],
         error=request.args.get("error"),
@@ -853,9 +932,13 @@ def project_flags(project_id):
         project=project.name,
         project_id=project.id,
         flags=flags,
+        viewer_documents=_viewer_documents_for_project(session, project_id),
         type_filter=type_filter,
         jurisdiction_count=sum(1 for f in all_flags if f.check_type == CheckType.JURISDICTION),
         cross_discipline_count=sum(1 for f in all_flags if f.check_type == CheckType.CROSS_DISCIPLINE),
+        high_count=sum(1 for f in flags if f.severity == FlagSeverity.HIGH),
+        medium_count=sum(1 for f in flags if f.severity == FlagSeverity.MEDIUM),
+        low_count=sum(1 for f in flags if f.severity == FlagSeverity.LOW),
     )
 
 
@@ -1028,6 +1111,131 @@ def document_clauses(document_id):
         total_count=total_count,
         q=q,
     )
+
+
+@app.get("/documents/<document_id>/clause-options")
+def document_clause_options(document_id):
+    """Clause picker data for the inline viewer's "jump to clause" dropdown -
+    same label/text search as the full clause table (see document_clauses()),
+    just JSON and capped, since this backs a quick jump, not a full listing."""
+    session = get_session()
+    document = session.get(Document, document_id)
+    if document is None:
+        return jsonify([])
+
+    query = (
+        session.query(Clause)
+        .join(DocumentClause, DocumentClause.clause_id == Clause.id)
+        .filter(DocumentClause.document_id == document_id)
+    )
+    q = request.args.get("q", "").strip()
+    if q:
+        query = query.filter((Clause.text.ilike(f"%{q}%")) | (Clause.clause_label.ilike(f"%{q}%")))
+    clauses = query.order_by(Clause.clause_label).limit(200).all()
+
+    return jsonify([
+        {"id": c.id, "label": c.clause_label, "preview": c.text.strip().splitlines()[0][:80]}
+        for c in clauses
+    ])
+
+
+@app.get("/documents/<document_id>/page-count")
+def document_page_count(document_id):
+    """Page count for the inline viewer - only PDF_2D sheets are rasterizable;
+    everything else (SPEC docs, BIM stub) reports null so the viewer can show
+    a "no preview" message instead of a broken image stack."""
+    session = get_session()
+    document = session.get(Document, document_id)
+    if document is None or document.doc_type != DocType.PDF_2D:
+        return jsonify({"page_count": None})
+
+    content = storage.load(document.file_uri)
+    with fitz.open(stream=content, filetype="pdf") as doc:
+        return jsonify({"page_count": doc.page_count})
+
+
+@app.get("/documents/<document_id>/pages/<int:page_number>.png")
+def document_page_image(document_id, page_number):
+    session = get_session()
+    document = session.get(Document, document_id)
+    if document is None or document.doc_type != DocType.PDF_2D:
+        return redirect("/?error=Document not found")
+
+    content = storage.load(document.file_uri)
+    with fitz.open(stream=content, filetype="pdf") as doc:
+        if page_number < 1 or page_number > doc.page_count:
+            return redirect("/?error=Page not found")
+        pixmap = doc[page_number - 1].get_pixmap(dpi=110)
+        png_bytes = pixmap.tobytes("png")
+
+    # Storage is content-addressed (see app/storage.py) - a document's bytes
+    # at this uri never change, so these pages can be cached indefinitely.
+    return Response(
+        png_bytes,
+        mimetype="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.get("/documents/<document_id>/text")
+def document_text(document_id):
+    """Plain-text preview for SPEC docs (.txt/.docx) the inline viewer falls
+    back to when there are no pages to rasterize - reuses the same
+    extract_pages() PyMuPDF/python-docx parsing that clause extraction does,
+    just without writing any Clause rows."""
+    session = get_session()
+    document = session.get(Document, document_id)
+    if document is None or document.doc_type != DocType.SPEC:
+        return jsonify({"text": None})
+
+    filename = (document.metadata_ or {}).get("original_filename") or document.file_uri.rsplit("/", 1)[-1]
+    content = storage.load(document.file_uri)
+    pages = extract_pages(content, document.doc_type, filename)
+    return jsonify({"text": pages[0] if pages else None})
+
+
+@app.get("/clauses/<clause_id>/locate")
+def locate_clause(clause_id):
+    """Jump target for a flag's clause/citation link - resolves the clause's
+    current sheet and page, then redirects into the inline viewer with
+    ?clause= set so it can highlight it once the document's loaded (see
+    /clauses/<id>/info, consumed by project_detail.html's applyClauseHighlight)."""
+    session = get_session()
+    clause = session.get(Clause, clause_id)
+    if clause is None:
+        return redirect("/?error=Clause not found")
+
+    document = _current_document_for_clause(session, clause)
+    if document is None:
+        return redirect(f"/projects/{clause.series.project_id}?error=That clause's sheet isn't part of the current revision anymore")
+
+    params = {"document": document.id, "clause": clause.id}
+    page = (clause.location or {}).get("page")
+    if page:
+        params["page"] = page
+    return redirect(f"/projects/{clause.series.project_id}?{urlencode(params)}")
+
+
+@app.get("/clauses/<clause_id>/info")
+def clause_info(clause_id):
+    session = get_session()
+    clause = session.get(Clause, clause_id)
+    if clause is None:
+        return jsonify({"error": "Clause not found"}), 404
+
+    page_number = (clause.location or {}).get("page")
+    document = _current_document_for_clause(session, clause)
+    bbox = None
+    if document is not None and document.doc_type == DocType.PDF_2D and page_number:
+        bbox = _find_clause_bbox(document, page_number, clause.text)
+
+    return jsonify({
+        "clause_label": clause.clause_label,
+        "text": clause.text,
+        "page": page_number,
+        "bbox": bbox,
+        "document_id": document.id if document is not None else None,
+    })
 
 
 @app.get("/files/<document_id>")

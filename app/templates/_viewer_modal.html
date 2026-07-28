@@ -1,0 +1,31 @@
+<!-- Shared inline document viewer, as a modal - reuses the same
+     modal-overlay/modal/modal-header/modal-body/modal-close classes as
+     project_detail.html's "Document network" graph modal. Included by both
+     project_detail.html (sheet-table "View" links)
+     and flags.html ("locate" links) so there's one viewer implementation,
+     not two - see app/static/viewer.js for its behavior. Requires
+     `viewer_documents` in the including template's context (a list of
+     {id, sheet, title} - see _viewer_documents_for_project in app/web.py). -->
+<div id="viewer-overlay" class="modal-overlay" hidden onclick="if (event.target === this) closeViewerModal();">
+  <div class="modal viewer-modal" role="dialog" aria-modal="true" aria-label="Document viewer">
+    <div class="modal-header">
+      <h2 class="serif" style="font-size: 1.1rem; font-weight: 400; margin: 0;">Document viewer</h2>
+      <button type="button" class="modal-close" onclick="closeViewerModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="viewer-controls">
+        <select id="viewer-doc-select" onchange="onViewerDocChange(this.value)">
+          {% for row in viewer_documents %}
+          <option value="{{ row.id }}">{{ row.sheet }} &middot; {{ row.title }}</option>
+          {% endfor %}
+        </select>
+        <input type="search" id="viewer-clause-search" placeholder="Search clauses&hellip;" oninput="onClauseSearchInput()">
+        <select id="viewer-clause-picker" onchange="onClausePicked(this.value)">
+          <option value="">Jump to clause&hellip;</option>
+        </select>
+      </div>
+      <div id="viewer-pages" class="viewer-pages"></div>
+    </div>
+  </div>
+</div>
+<script src="/static/viewer.js"></script>
