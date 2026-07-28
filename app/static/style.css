@@ -22,6 +22,16 @@
   --shadow: 0 1px 3px rgba(23, 22, 15, 0.06);
   --focus: rgba(63, 82, 48, 0.3);
 
+  /* Flag severity only - deliberately more saturated than --danger/--warn
+     above (which stay muted, for errors/status pills/the delete button),
+     so severity reads as its own clear signal rather than blending into the
+     rest of the palette. Not a literal copy of a reference palette's amber -
+     that value reads fine as a small dot/border but fails contrast as body
+     text on this bg (~1.9:1); this is a deeper gold that still passes. */
+  --sev-high: #c62828;
+  --sev-medium: #b8860b;
+  --sev-low: #2e7d32;
+
   /* Document network graph - discipline node colors, chosen to stay
      visually distinct from --danger/--warn (reserved for flag severity),
      so "which discipline" and "how bad" never read as the same signal. */
@@ -51,6 +61,10 @@
   --warn-soft: #2c2515;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   --focus: rgba(169, 194, 141, 0.35);
+
+  --sev-high: #e57373;
+  --sev-medium: #f4b942;
+  --sev-low: #66bb6a;
 
   --disc-architectural: #8fa8c9;
   --disc-structural: #a8b6c2;
@@ -176,9 +190,9 @@ h2 {
   display: inline-block; font-size: 0.68rem; font-weight: 600; background: var(--warn-soft);
   color: var(--warn); padding: 0.1rem 0.5rem; border-radius: 999px; margin-left: 0.4rem; cursor: help;
 }
-.sev-high { color: var(--danger); font-weight: 700; }
-.sev-medium { color: var(--warn); font-weight: 700; }
-.sev-low { color: var(--ink-soft); font-weight: 600; }
+.sev-high { color: var(--sev-high); font-weight: 700; }
+.sev-medium { color: var(--sev-medium); font-weight: 700; }
+.sev-low { color: var(--sev-low); font-weight: 600; }
 
 .diff-tag { font-size: 0.68rem; text-transform: uppercase; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px; margin-right: 0.4rem; letter-spacing: 0.03em; }
 .diff-tag-new { background: var(--accent-soft); color: var(--accent); }
@@ -227,9 +241,9 @@ h2 {
   background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--rule-strong);
   border-radius: 8px; box-shadow: var(--shadow); overflow: hidden;
 }
-.flag-card--high { border-left-color: var(--danger); }
-.flag-card--medium { border-left-color: var(--warn); }
-.flag-card--low { border-left-color: var(--ink-faint); }
+.flag-card--high { border-left-color: var(--sev-high); }
+.flag-card--medium { border-left-color: var(--sev-medium); }
+.flag-card--low { border-left-color: var(--sev-low); }
 
 .flag-card-summary {
   list-style: none; cursor: pointer; padding: 0.85rem 1.2rem; display: flex; align-items: center;
@@ -241,9 +255,9 @@ h2 {
 .flag-card[open] .flag-card-summary { border-bottom: 1px solid var(--rule); }
 
 .flag-card-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; }
-.sev-dot-high { background: var(--danger); }
-.sev-dot-medium { background: var(--warn); }
-.sev-dot-low { background: var(--ink-faint); }
+.sev-dot-high { background: var(--sev-high); }
+.sev-dot-medium { background: var(--sev-medium); }
+.sev-dot-low { background: var(--sev-low); }
 
 .flag-card-type {
   text-transform: uppercase; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: var(--ink-faint);

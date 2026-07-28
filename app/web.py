@@ -121,6 +121,35 @@ _running_checks_lock = threading.Lock()
 _running_checks: set[tuple[str, str]] = set()  # (project_id, check_type value)
 _check_errors: dict[tuple[str, str], str] = {}
 
+# Same problem, same fix, for clause extraction: a 160-page PDF took 20+
+# seconds to extract in testing, done inline it blocked the ingest request
+# for that long (worse, in a single combined request, for a batch of several
+# such files) - long enough to plausibly hit the same proxy timeouts the
+# checks above were already backgrounded to avoid. Keyed by document_id
+# rather than (project_id, check_type) since extraction is a per-document
+# operation, not a per-project one.
+_running_extractions_lock = threading.Lock()
+_running_extractions: set[str] = set()  # document_id
+_extraction_errors: dict[str, str] = {}
+
+
+def _is_extraction_running(document_id: str) -> bool:
+    with _running_extractions_lock:
+        return document_id in _running_extractions
+
+
+def _start_extraction_tracking(document_id: str) -> None:
+    with _running_extractions_lock:
+        _running_extractions.add(document_id)
+        _extraction_errors.pop(document_id, None)
+
+
+def _finish_extraction_tracking(document_id: str, error: str | None = None) -> None:
+    with _running_extractions_lock:
+        _running_extractions.discard(document_id)
+        if error:
+            _extraction_errors[document_id] = error
+
 
 def _is_check_running(project_id: str, check_type_value: str) -> bool:
     with _running_checks_lock:
@@ -650,8 +679,30 @@ def ingest(project_id):
         content=file.read(),
         filename=file.filename,
     )
-    extract_and_store_clauses(session, document)
     session.commit()
+
+    # Clause extraction (not just the file save above) is the slow part for a
+    # large multi-page PDF - backgrounded for the same reason the checks are
+    # (see _running_extractions' comment). The sheet already shows up in the
+    # project's table immediately; its clause count just reads 0 until this
+    # finishes, same as any other "still processing" state in this app.
+    document_id = document.id
+    _start_extraction_tracking(document_id)
+
+    def _run():
+        bg_session = _get_session()
+        try:
+            bg_document = bg_session.get(Document, document_id)
+            extract_and_store_clauses(bg_session, bg_document)
+            bg_session.commit()
+            _finish_extraction_tracking(document_id)
+        except Exception as e:
+            bg_session.rollback()
+            _finish_extraction_tracking(document_id, error=f"Clause extraction failed: {' '.join(str(e).split())}")
+        finally:
+            bg_session.close()
+
+    threading.Thread(target=_run, daemon=True).start()
     return redirect(f"/projects/{project_id}")
 
 
@@ -732,6 +783,14 @@ def check_status(project_id):
     return jsonify({
         "running": _is_check_running(project_id, check_type_value),
         "error": _check_errors.get((project_id, check_type_value)),
+    })
+
+
+@app.get("/documents/<document_id>/extraction-status")
+def document_extraction_status(document_id):
+    return jsonify({
+        "running": _is_extraction_running(document_id),
+        "error": _extraction_errors.get(document_id),
     })
 
 

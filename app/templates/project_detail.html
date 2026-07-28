@@ -397,19 +397,31 @@
       formData.append('title', entry.title);
       formData.append('file', entry.file);
 
-      const res = await fetch(`/projects/${PROJECT_ID}/ingest`, { method: 'POST', body: formData });
-      const failed = new URL(res.url).searchParams.get('error');
-      if (statusEl) {
-        if (failed) {
-          statusEl.textContent = failed;
-          statusEl.className = 'batch-row-status error';
-        } else {
-          statusEl.textContent = 'Ingested';
-          statusEl.className = 'batch-row-status success';
+      // fetch() rejects (rather than resolving with a response) on a dropped
+      // or reset connection - a real risk here since a large file's upload
+      // can take a while. Without this try/catch, that threw uncaught, the
+      // whole loop died silently, and the row was left reading "Uploading…"
+      // forever with no error ever shown.
+      try {
+        const res = await fetch(`/projects/${PROJECT_ID}/ingest`, { method: 'POST', body: formData });
+        const failed = new URL(res.url).searchParams.get('error');
+        if (statusEl) {
+          if (failed) {
+            statusEl.textContent = failed;
+            statusEl.className = 'batch-row-status error';
+          } else {
+            statusEl.textContent = 'Ingested';
+            statusEl.className = 'batch-row-status success';
+            successCount++;
+          }
+        } else if (!failed) {
           successCount++;
         }
-      } else if (!failed) {
-        successCount++;
+      } catch (e) {
+        if (statusEl) {
+          statusEl.textContent = `Upload failed: ${e.message}`;
+          statusEl.className = 'batch-row-status error';
+        }
       }
     }
 
@@ -502,9 +514,9 @@
   let dragNode = null, panState = null;
 
   const disciplineColor = (d) => getComputedStyle(document.documentElement).getPropertyValue('--disc-' + d).trim();
-  const severityColor = (s) => s === 'high' ? getComputedStyle(document.documentElement).getPropertyValue('--danger').trim()
-    : s === 'medium' ? getComputedStyle(document.documentElement).getPropertyValue('--warn').trim()
-    : getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const severityColor = (s) => s === 'high' ? getComputedStyle(document.documentElement).getPropertyValue('--sev-high').trim()
+    : s === 'medium' ? getComputedStyle(document.documentElement).getPropertyValue('--sev-medium').trim()
+    : getComputedStyle(document.documentElement).getPropertyValue('--sev-low').trim();
 
   async function openGraphModal() {
     document.getElementById('graph-overlay').hidden = false;
