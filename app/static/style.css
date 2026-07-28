@@ -29,8 +29,8 @@
      red/amber/green - green reads as "fine," and even a low-severity flag
      is still a real flag, not an all-clear. */
   --sev-high: #c62828;
-  --sev-medium: #cc5500;
-  --sev-low: #a68a00;
+  --sev-medium: #d97a00;
+  --sev-low: #c79a00;
 
   /* Document network graph - discipline node colors, chosen to stay
      visually distinct from --danger/--warn (reserved for flag severity),
@@ -63,8 +63,8 @@
   --focus: rgba(169, 194, 141, 0.35);
 
   --sev-high: #e57373;
-  --sev-medium: #ff9248;
-  --sev-low: #f2c94c;
+  --sev-medium: #ffa456;
+  --sev-low: #f7d576;
 
   --disc-architectural: #8fa8c9;
   --disc-structural: #a8b6c2;
