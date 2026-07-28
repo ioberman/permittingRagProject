@@ -96,6 +96,11 @@ from app.models import (
 from app.retrieval import find_candidate_cross_discipline_clauses_scored
 
 app = Flask(__name__)
+# Keep the application limit aligned with deploy/oracle/nginx-upload-limits.conf.
+# Nginx normally rejects oversized requests first in production, while this
+# protects local development and deployments that expose gunicorn directly.
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "100"))
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 # Off by default outside debug mode, which means a long-running `flask run`
 # process silently keeps serving whatever a template looked like on its
 # first render - editing the .html file on disk has no effect until the
@@ -1024,26 +1029,46 @@ def jurisdictions():
 
 @app.post("/jurisdictions/documents")
 def add_jurisdiction_document():
-    file = request.files.get("file")
-    if not file or not file.filename:
+    # The jurisdiction setup workflow normally starts with a small stack of
+    # related sources (base code, state/local amendments, permit guides), so
+    # accepting only one document per request makes initial setup needlessly
+    # repetitive.  Keep the legacy `file`/`title` fields working while the UI
+    # sends `files`/`titles` for a batch.
+    files = [file for file in request.files.getlist("files") if file and file.filename]
+    if not files:
+        legacy_file = request.files.get("file")
+        if legacy_file and legacy_file.filename:
+            files = [legacy_file]
+    if not files:
         return redirect("/jurisdictions?error=No file selected")
 
-    try:
-        doc_type = infer_doc_type(file.filename)
-    except ValueError as e:
-        return redirect(f"/jurisdictions?{urlencode({'error': str(e)})}")
+    # Validate the whole batch before writing anything, so a bad file does
+    # not leave the user with a surprising half-ingested jurisdiction.
+    typed_files = []
+    for file in files:
+        try:
+            typed_files.append((file, infer_doc_type(file.filename)))
+        except ValueError as e:
+            return redirect(f"/jurisdictions?{urlencode({'error': str(e)})}")
 
     session = get_session()
     jurisdiction = get_or_create_jurisdiction(session, request.form["jurisdiction_name"])
-    document = ingest_jurisdiction_document(
-        session,
-        jurisdiction,
-        title=request.form["title"],
-        doc_type=doc_type,
-        content=file.read(),
-        filename=file.filename,
-    )
-    extract_and_store_jurisdiction_clauses(session, document)
+    titles = request.form.getlist("titles")
+    legacy_title = request.form.get("title", "").strip()
+
+    for index, (file, doc_type) in enumerate(typed_files):
+        title = titles[index].strip() if index < len(titles) else ""
+        if not title:
+            title = legacy_title if len(typed_files) == 1 and legacy_title else _title_from_filename(file.filename)
+        document = ingest_jurisdiction_document(
+            session,
+            jurisdiction,
+            title=title,
+            doc_type=doc_type,
+            content=file.read(),
+            filename=file.filename,
+        )
+        extract_and_store_jurisdiction_clauses(session, document)
     session.commit()
     return redirect("/jurisdictions")
 

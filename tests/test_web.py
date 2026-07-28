@@ -373,3 +373,45 @@ def test_audit_report_html_and_csv(client, project_id):
 def test_jurisdictions_page_loads(client):
     resp = client.get("/jurisdictions")
     assert resp.status_code == 200
+    assert b'id="jurisdiction-files"' in resp.data
+    assert b'multiple' in resp.data
+
+
+def test_upload_request_limit_is_configured():
+    assert web_module.app.config["MAX_CONTENT_LENGTH"] == 100 * 1024 * 1024
+
+
+def test_jurisdiction_batch_document_upload(client):
+    jurisdiction_name = "Batch Upload County"
+    resp = client.post(
+        "/jurisdictions/documents",
+        data={
+            "jurisdiction_name": jurisdiction_name,
+            "titles": ["Residential Amendments", "Permit Guide"],
+            "files": [
+                (io.BytesIO(b"R101.1 Residential amendment text."), "residential_amendments.txt"),
+                (io.BytesIO(b"1.1 Permit application guide text."), "permit_guide.txt"),
+            ],
+        },
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/jurisdictions"
+
+    from app.db import get_session
+    from app.models import Jurisdiction, JurisdictionDocument, JurisdictionClause
+
+    session = get_session()
+    jurisdiction = session.query(Jurisdiction).filter_by(name=jurisdiction_name).one()
+    documents = (
+        session.query(JurisdictionDocument)
+        .filter_by(jurisdiction_id=jurisdiction.id)
+        .order_by(JurisdictionDocument.title)
+        .all()
+    )
+    assert [document.title for document in documents] == ["Permit Guide", "Residential Amendments"]
+    assert all(
+        session.query(JurisdictionClause).filter_by(jurisdiction_document_id=document.id).count() >= 1
+        for document in documents
+    )
