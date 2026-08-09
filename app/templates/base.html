@@ -426,12 +426,38 @@ erDiagram
 
       target.scrollIntoView({ block: 'center', behavior: 'smooth' });
 
-      // A fixed delay rather than waiting on a scroll-end event - not
-      // perfectly synced with the browser's smooth-scroll animation, but
-      // every render re-measures the target's position anyway, so a
-      // slightly-stale rect here just means the spotlight briefly lags,
-      // never actually breaks.
-      setTimeout(function () {
+      // Waits for the scroll position to actually stop changing, rather than
+      // a fixed delay - a fixed delay long enough for a short hop (project
+      // page, a couple hundred px) is nowhere near enough for a long one (the
+      // flags page with many cards can need to scroll a full page or more),
+      // so the highlight got measured mid-scroll and landed wherever the page
+      // happened to be at that instant - up near the "Take a tour" button on
+      // a long flags page. Polling scrollY directly (not a `scrollend`
+      // listener) also correctly handles a target that's already in view and
+      // needs no scrolling at all - `scrollend` never fires in that case.
+      var lastScrollY = window.scrollY;
+      var stableFrames = 0;
+      var attempts = 0;
+      function waitForScrollToSettle() {
+        attempts++;
+        var y = window.scrollY;
+        if (y === lastScrollY) {
+          stableFrames++;
+        } else {
+          stableFrames = 0;
+          lastScrollY = y;
+        }
+        // 3 consecutive stable frames (~50ms) means the scroll has settled;
+        // the 180-frame cap (~3s) is just a safety net against never firing.
+        if (stableFrames >= 3 || attempts > 180) {
+          positionTourOverlay();
+        } else {
+          requestAnimationFrame(waitForScrollToSettle);
+        }
+      }
+      requestAnimationFrame(waitForScrollToSettle);
+
+      function positionTourOverlay() {
         if (!tourState) return;
         var rect = target.getBoundingClientRect();
         var pad = 6;
@@ -470,7 +496,7 @@ erDiagram
         document.getElementById('tour-next').addEventListener('click', function () { tourStep(1); });
         var backBtn = document.getElementById('tour-back');
         if (backBtn) backBtn.addEventListener('click', function () { tourStep(-1); });
-      }, 260);
+      }
     }
   </script>
   {% block extra_scripts %}{% endblock %}
