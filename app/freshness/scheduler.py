@@ -47,7 +47,7 @@ def _run_due_checks() -> None:
             try:
                 snapshot = run_check(source, session)
                 print(f"[freshness] checked {source.label}: snapshot {snapshot.id}", flush=True)
-                if source.kind == FreshnessSourceKind.MUNICODE:
+                if source.kind in (FreshnessSourceKind.MUNICODE, FreshnessSourceKind.STATE_CODE_PDF):
                     clause_count = sync_scraped_clauses(session, source, snapshot)
                     print(f"[freshness] synced {clause_count} clause(s) for {source.label}", flush=True)
             except Exception as e:

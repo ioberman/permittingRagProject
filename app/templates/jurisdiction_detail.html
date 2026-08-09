@@ -26,6 +26,9 @@
         </td>
       </tr>
       <tr><th>Last checked</th><td>{{ source.last_checked_at.strftime("%Y-%m-%d %H:%M") if source.last_checked_at else "never" }}</td></tr>
+      {% if source.last_checked_at %}
+      <tr><th>Raw data</th><td><a href="/freshness/{{ source.id }}/raw" target="_blank" class="action-link">view latest raw fetch &rarr;</a></td></tr>
+      {% endif %}
     </table>
   </div>
   {% if source.history %}

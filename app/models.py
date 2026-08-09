@@ -62,6 +62,10 @@ class DocType(enum.Enum):
     MUNICODE_SCRAPE = "municode_scrape"  # synthetic JurisdictionDocument fed by
     # app/freshness/jurisdiction_sync.py, not a real upload - kept distinct so
     # the jurisdictions page never shows it as if a human had uploaded it.
+    STATE_CODE_PDF = "state_code_pdf"  # same idea, for a state-published code
+    # PDF (e.g. Connecticut's state building code) fetched on a schedule by
+    # app/freshness/state_code.py - a genuine official/public-record PDF,
+    # unlike Municode's unofficial scrape, but still not a human upload.
 
 
 class SubmissionStatus(enum.Enum):
@@ -101,6 +105,12 @@ class FlagStatus(enum.Enum):
 class FreshnessSourceKind(enum.Enum):
     MUNICODE = "municode"
     ICC_PUBLIC = "icc_public"
+    STATE_CODE_PDF = "state_code_pdf"  # official state-published code PDF -
+    # unlike municode/icc_public, jurisdiction_id is required, not optional:
+    # a state code applies to every jurisdiction in that state, but this
+    # project doesn't model "state" as its own entity, so each jurisdiction
+    # that should see it gets its own FreshnessSource row pointed at the
+    # same source_ref URL (see app/freshness/seed.py).
 
 
 class CheckType(enum.Enum):

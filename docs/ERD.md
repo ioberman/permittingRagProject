@@ -17,10 +17,10 @@ erDiagram
         string id PK
         string jurisdiction_id FK
         string title
-        string doc_type "bim | pdf_2d | spec | municode_scrape"
+        string doc_type "bim | pdf_2d | spec | municode_scrape | state_code_pdf"
         string file_uri
         string file_hash
-        json metadata "nullable - freshness_source_id links a municode_scrape doc back to its FRESHNESS_SOURCE"
+        json metadata "nullable - freshness_source_id links a municode_scrape/state_code_pdf doc back to its FRESHNESS_SOURCE"
         datetime ingested_at
     }
 
@@ -30,7 +30,7 @@ erDiagram
         string clause_label
         string text
         string content_hash UK "unique per jurisdiction_document"
-        string extraction_method "pdf_text | spec_text | ifc_property | manual | municode_scrape"
+        string extraction_method "pdf_text | spec_text | ifc_property | manual | municode_scrape - state_code_pdf docs use pdf_text, same extractor as a human upload"
         json location
         datetime created_at
     }
@@ -129,10 +129,10 @@ erDiagram
 
     FRESHNESS_SOURCE {
         string id PK
-        string kind "municode | icc_public"
+        string kind "municode | icc_public | state_code_pdf"
         string label
-        string jurisdiction_id FK "nullable - null for icc_public, which isn't jurisdiction-specific"
-        string source_ref "municode: 'productId:nodeId' | icc_public: sitemap URL"
+        string jurisdiction_id FK "nullable only for icc_public, which isn't jurisdiction-specific; required for municode and state_code_pdf"
+        string source_ref "municode: 'productId:nodeId' | icc_public: sitemap URL | state_code_pdf: PDF URL"
         int check_interval_seconds
         datetime created_at
     }
@@ -242,18 +242,27 @@ erDiagram
   a `FRESHNESS_CHANGE` row is written only when a fetch's content hash
   differs from the source's previous snapshot. `FRESHNESS_SOURCE.jurisdiction_id`
   is nullable because `icc_public` sources (base model code editions) apply
-  across every jurisdiction, not one in particular - only `municode` sources
-  are tied to a specific `JURISDICTION`.
-- **A `municode`-kind `FRESHNESS_SOURCE`'s content also feeds
+  across every jurisdiction, not one in particular - `municode` and
+  `state_code_pdf` sources are both tied to a specific `JURISDICTION` (a state
+  code source is attached to whichever of that state's jurisdictions has one
+  configured - this project doesn't model "state" as its own entity, so a
+  state covering multiple configured jurisdictions gets one `FRESHNESS_SOURCE`
+  row per jurisdiction, same `source_ref` URL, not a single shared row).
+- **Both `municode`- and `state_code_pdf`-kind `FRESHNESS_SOURCE`s feed
   `JURISDICTION_CLAUSE`** (`app/freshness/jurisdiction_sync.py`), not just the
-  freshness dashboard: each scraped section becomes a `JURISDICTION_CLAUSE`
-  row (`extraction_method = municode_scrape`) under a synthetic
-  `JURISDICTION_DOCUMENT` (`doc_type = municode_scrape`), so it's picked up by
-  the same retrieval pool (`find_candidate_jurisdiction_clauses`) as a
-  human-uploaded document. That link is `JURISDICTION_DOCUMENT.metadata_
-  ->> freshness_source_id`, not a real foreign key (no schema migration
-  tooling exists yet to add one to an already-populated table), so it isn't
-  drawn as a formal relationship above. Retrieval prefers whichever of an
-  uploaded vs. scraped clause was more recently confirmed current on a
-  near-tied match, via `JURISDICTION_DOCUMENT.ingested_at` - not "uploaded
-  always wins," since a stale upload shouldn't outrank a same-day scrape.
+  freshness dashboard: each fetched section becomes a `JURISDICTION_CLAUSE` row
+  under a synthetic `JURISDICTION_DOCUMENT` (`doc_type = municode_scrape` or
+  `state_code_pdf`), so it's picked up by the same retrieval pool
+  (`find_candidate_jurisdiction_clauses`) as a human-uploaded document. A
+  `state_code_pdf` document's clauses use `extraction_method = pdf_text` -
+  the exact same PDF extractor a human upload uses, since it genuinely is one;
+  only `doc_type` marks it as auto-fetched rather than uploaded.
+  `icc_public` sources are not synced into any clause pool - an edition-year
+  signal isn't clause text to reason over. The scrape-to-document link is
+  `JURISDICTION_DOCUMENT.metadata_ ->> freshness_source_id`, not a real
+  foreign key (no schema migration tooling exists yet to add one to an
+  already-populated table), so it isn't drawn as a formal relationship above.
+  Retrieval prefers whichever source (uploaded, Municode, or state code) was
+  most recently confirmed current on a near-tied match, via
+  `JURISDICTION_DOCUMENT.ingested_at` - not "uploaded always wins," since a
+  stale upload shouldn't outrank a same-day fetch.

@@ -22,6 +22,13 @@ from app.models import (
 from app.storage import LocalFileStorage
 
 
+# Every DocType that's fed automatically by app/freshness/jurisdiction_sync.py
+# rather than a real human upload - excluded from "uploaded" counts. A single
+# set here (not an inline != chain per doc_type) so adding a future
+# auto-fetched kind can't silently miss one of these checks the way
+# STATE_CODE_PDF initially did when it was added after MUNICODE_SCRAPE.
+_AUTO_FETCHED_DOC_TYPES = {DocType.MUNICODE_SCRAPE, DocType.STATE_CODE_PDF}
+
 # Matches the map SVG's own per-state class names (app/templates/_us_map.html).
 _VALID_STATE_ABBRS = {
     "al", "ak", "az", "ar", "ca", "co", "ct", "de", "dc", "fl", "ga", "hi", "id",
@@ -102,8 +109,9 @@ def icc_banner_status(session, storage: LocalFileStorage | None = None) -> dict 
 
 def jurisdiction_summary_rows(session) -> list[dict]:
     """One row per jurisdiction for the /jurisdictions index - uploaded_count
-    excludes MUNICODE_SCRAPE documents, since those aren't something a human
-    uploaded (see app/freshness/jurisdiction_sync.py); clause_count is the
+    excludes auto-fetched documents (Municode scrape, state code PDF), since
+    those aren't something a human uploaded (see
+    app/freshness/jurisdiction_sync.py); clause_count is the
     total across *every* document, uploaded or scraped. Both are shown
     together so a jurisdiction with real live-monitored content (uploaded_count
     0, clause_count >0, e.g. Hartford) doesn't read as empty next to one that
@@ -115,7 +123,7 @@ def jurisdiction_summary_rows(session) -> list[dict]:
         uploaded_count = (
             session.query(JurisdictionDocument)
             .filter(JurisdictionDocument.jurisdiction_id == jurisdiction.id)
-            .filter(JurisdictionDocument.doc_type != DocType.MUNICODE_SCRAPE)
+            .filter(JurisdictionDocument.doc_type.notin_(_AUTO_FETCHED_DOC_TYPES))
             .count()
         )
         clause_count = (

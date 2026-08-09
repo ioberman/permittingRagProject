@@ -1,9 +1,10 @@
-"""Feeds successfully-fetched Municode content into the same JurisdictionClause
-pool used for real conflict detection (app/retrieval.py), alongside whatever a
-user has manually uploaded for the same jurisdiction - not just a separate
-freshness dashboard signal that never touches the actual product pipeline.
+"""Feeds successfully-fetched Municode/state-code-PDF content into the same
+JurisdictionClause pool used for real conflict detection (app/retrieval.py),
+alongside whatever a user has manually uploaded for the same jurisdiction -
+not just a separate freshness dashboard signal that never touches the actual
+product pipeline.
 
-Municode-derived clauses are additive only: existing rows are matched by
+Scraped/fetched clauses are additive only: existing rows are matched by
 content hash (get_or_create_jurisdiction_clause) and reused when text hasn't
 changed, new rows are added when it has. Nothing is ever deleted here - a Flag
 can already cite a JurisdictionClause by id (FlagCitation.jurisdiction_clause_id),
@@ -13,21 +14,44 @@ section's old clause can outlive its removal from the live source - the same
 "no revision-tracking yet" tradeoff already accepted for JurisdictionDocument
 generally (see app/models.py's docstring), not a new one introduced here.
 
-app/retrieval.py prioritizes user-uploaded clauses over these when ranking
-near-tied candidates - this feed is meant to fill gaps in what a user
-uploaded, not to be treated as equally authoritative when they overlap.
+app/retrieval.py prioritizes whichever source (upload, Municode, or state
+code) was most recently confirmed current when ranking near-tied candidates,
+via JurisdictionDocument.ingested_at - not "uploaded always wins."
 """
 
 from app.clause_extraction import get_or_create_jurisdiction_clause
-from app.freshness.municode import extract_sections
+from app.freshness import municode as _municode
+from app.freshness import state_code as _state_code
 from app.models import (
     DocType,
     ExtractionMethod,
     FreshnessSnapshot,
     FreshnessSource,
+    FreshnessSourceKind,
     JurisdictionDocument,
 )
 from app.storage import LocalFileStorage
+
+_DOC_TYPE_BY_KIND = {
+    FreshnessSourceKind.MUNICODE: DocType.MUNICODE_SCRAPE,
+    FreshnessSourceKind.STATE_CODE_PDF: DocType.STATE_CODE_PDF,
+}
+_EXTRACTION_METHOD_BY_KIND = {
+    FreshnessSourceKind.MUNICODE: ExtractionMethod.MUNICODE_SCRAPE,
+    # State code PDFs go through the exact same PDF text extraction as a
+    # human-uploaded PDF (app/clause_extraction.py), so PDF_TEXT is accurate
+    # here, not a new extraction method - the distinction from a real upload
+    # is doc_type/provenance, not how the text was pulled out.
+    FreshnessSourceKind.STATE_CODE_PDF: ExtractionMethod.PDF_TEXT,
+}
+
+
+def _extract_sections(source_kind: FreshnessSourceKind, raw: bytes) -> list[tuple[str, str, str]]:
+    if source_kind == FreshnessSourceKind.MUNICODE:
+        return _municode.extract_sections(raw)
+    if source_kind == FreshnessSourceKind.STATE_CODE_PDF:
+        return _state_code.extract_sections(raw)
+    raise NotImplementedError(f"no clause sync implemented for source kind {source_kind}")
 
 
 def _get_or_create_scrape_document(
@@ -56,7 +80,7 @@ def _get_or_create_scrape_document(
     document = JurisdictionDocument(
         jurisdiction_id=source.jurisdiction_id,
         title=source.label,
-        doc_type=DocType.MUNICODE_SCRAPE,
+        doc_type=_DOC_TYPE_BY_KIND[source.kind],
         file_uri=snapshot.raw_content_uri,
         file_hash=snapshot.content_hash,
         metadata_={"freshness_source_id": source.id},
@@ -70,18 +94,19 @@ def _get_or_create_scrape_document(
 def sync_scraped_clauses(
     session, source: FreshnessSource, snapshot: FreshnessSnapshot, storage: LocalFileStorage | None = None
 ) -> int:
-    """Called after every successful Municode run_check, not just when a
-    change was detected - get_or_create_jurisdiction_clause is a cheap no-op
-    per section when its text hasn't changed. Returns the number of sections
-    processed (not necessarily newly created)."""
+    """Called after every successful MUNICODE/STATE_CODE_PDF run_check, not
+    just when a change was detected - get_or_create_jurisdiction_clause is a
+    cheap no-op per section when its text hasn't changed. Returns the number
+    of sections processed (not necessarily newly created)."""
     if source.jurisdiction_id is None:
         return 0
 
     storage = storage or LocalFileStorage()
     raw = storage.load(snapshot.raw_content_uri)
-    sections = extract_sections(raw)
+    sections = _extract_sections(source.kind, raw)
 
     document = _get_or_create_scrape_document(session, source, snapshot)
+    method = _EXTRACTION_METHOD_BY_KIND[source.kind]
     count = 0
     for doc_id, title, text in sections:
         if not text:
@@ -91,8 +116,8 @@ def sync_scraped_clauses(
             document,
             label=title or doc_id,
             text=text,
-            location={"municode_node_id": doc_id},
-            method=ExtractionMethod.MUNICODE_SCRAPE,
+            location={"source_doc_id": doc_id},
+            method=method,
         )
         count += 1
 

@@ -38,15 +38,17 @@
 
 <div class="jurisdictions-toolbar">
   {% if icc_status %}
-  <div class="summary summary--compact" id="icc-banner">
-    <div class="summary-card"><div class="n">{{ icc_status.last_checked_at }}</div><div class="l">ICC data last queried</div></div>
-    <div class="summary-card"><div class="n">{{ icc_status.latest_edition_year or "-" }}</div><div class="l">Current I-Codes edition</div></div>
-    <span class="info-tooltip" tabindex="0" style="align-self: center;">
-      <span class="info-tooltip-icon" aria-hidden="true">i</span>
-      <span class="info-tooltip-content">Base model code (IBC/IRC/etc.) freshness, checked daily against ICC's own
-        site - applies across every jurisdiction below, not any one of them specifically. Public/unofficial source
-        (POC scope), not a substitute for licensed ICC Code Connect / UpCodes coverage.</span>
-    </span>
+  <div class="icc-banner-block" id="icc-banner">
+    <div class="summary summary--compact">
+      <div class="summary-card"><div class="n">{{ icc_status.last_checked_at }}</div><div class="l">ICC data last queried</div></div>
+      <div class="summary-card"><div class="n">{{ icc_status.latest_edition_year or "-" }}</div><div class="l">Current I-Codes edition</div></div>
+      <span class="info-tooltip" tabindex="0" style="align-self: center;">
+        <span class="info-tooltip-icon" aria-hidden="true">i</span>
+        <span class="info-tooltip-content">Base model code (IBC/IRC/etc.) freshness, checked daily against ICC's own
+          site - applies across every jurisdiction below, not any one of them specifically. Public/unofficial source
+          (POC scope), not a substitute for licensed ICC Code Connect / UpCodes coverage.</span>
+      </span>
+    </div>
   </div>
   {% endif %}
 

@@ -14,10 +14,15 @@ import hashlib
 
 from app.freshness.icc import extract_edition_years, fetch_icc_sitemap
 from app.freshness.municode import (
-    extract_sections,
+    extract_sections as municode_extract_sections,
     fetch_municode_content,
-    normalize_sections,
+    normalize_sections as municode_normalize_sections,
     parse_source_ref,
+)
+from app.freshness.state_code import (
+    extract_sections as state_code_extract_sections,
+    fetch_state_code_pdf,
+    normalize_sections as state_code_normalize_sections,
 )
 from app.models import FreshnessChange, FreshnessSnapshot, FreshnessSource, FreshnessSourceKind
 from app.storage import LocalFileStorage
@@ -31,6 +36,8 @@ def _fetch_raw(source: FreshnessSource) -> bytes:
     if source.kind == FreshnessSourceKind.MUNICODE:
         product_id, node_id = parse_source_ref(source.source_ref)
         return fetch_municode_content(node_id, product_id)
+    if source.kind == FreshnessSourceKind.STATE_CODE_PDF:
+        return fetch_state_code_pdf(source.source_ref)
     raise NotImplementedError(f"no fetcher implemented for source kind {source.kind}")
 
 
@@ -38,7 +45,9 @@ def _normalize(source: FreshnessSource, raw: bytes) -> str:
     if source.kind == FreshnessSourceKind.ICC_PUBLIC:
         return ",".join(str(year) for year in extract_edition_years(raw))
     if source.kind == FreshnessSourceKind.MUNICODE:
-        return normalize_sections(extract_sections(raw))
+        return municode_normalize_sections(municode_extract_sections(raw))
+    if source.kind == FreshnessSourceKind.STATE_CODE_PDF:
+        return state_code_normalize_sections(state_code_extract_sections(raw))
     raise NotImplementedError(f"no normalizer implemented for source kind {source.kind}")
 
 
@@ -55,7 +64,11 @@ def _icc_diff_summary(prev_normalized: str, new_normalized: str) -> str:
     return "; ".join(parts) if parts else "sitemap content changed, no edition-year difference detected"
 
 
-def _municode_diff_summary(prev_normalized: str, new_normalized: str) -> str:
+def _section_diff_summary(prev_normalized: str, new_normalized: str) -> str:
+    """Shared by MUNICODE and STATE_CODE_PDF - both normalize to the same
+    "doc_id\\ttitle\\ttext" line-per-section shape (see
+    app/freshness/municode.py and app/freshness/state_code.py), so the same
+    line-level diff logic applies to either."""
     def by_id(normalized: str) -> dict[str, tuple[str, str]]:
         result = {}
         for line in normalized.split("\n"):
@@ -90,14 +103,20 @@ def _municode_diff_summary(prev_normalized: str, new_normalized: str) -> str:
 def _diff_summary(source: FreshnessSource, prev_normalized: str, new_normalized: str) -> str:
     if source.kind == FreshnessSourceKind.ICC_PUBLIC:
         return _icc_diff_summary(prev_normalized, new_normalized)
-    if source.kind == FreshnessSourceKind.MUNICODE:
-        return _municode_diff_summary(prev_normalized, new_normalized)
+    if source.kind in (FreshnessSourceKind.MUNICODE, FreshnessSourceKind.STATE_CODE_PDF):
+        return _section_diff_summary(prev_normalized, new_normalized)
     raise NotImplementedError(f"no summarizer implemented for source kind {source.kind}")
 
 
+_RAW_FILE_EXTENSION = {
+    FreshnessSourceKind.ICC_PUBLIC: "xml",
+    FreshnessSourceKind.MUNICODE: "json",
+    FreshnessSourceKind.STATE_CODE_PDF: "pdf",
+}
+
+
 def _raw_filename(source: FreshnessSource) -> str:
-    extension = "json" if source.kind == FreshnessSourceKind.MUNICODE else "xml"
-    return f"{source.id}.{extension}"
+    return f"{source.id}.{_RAW_FILE_EXTENSION[source.kind]}"
 
 
 def run_check(source: FreshnessSource, session, storage: LocalFileStorage | None = None) -> FreshnessSnapshot:

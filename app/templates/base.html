@@ -99,12 +99,12 @@ flowchart TD
     end
 
     subgraph S6["6 - FRESHNESS MONITORING (background, independent of any submission)"]
-        N["Scheduled fetch<br/>ICC daily / Municode every 4h"]:::freshness
+        N["Scheduled fetch<br/>ICC daily / Municode every 4h / state code PDF daily"]:::freshness
         O["Hash + diff vs.<br/>last snapshot"]:::freshness
         P[("Snapshot + change record<br/>(every fetch, for audit)")]:::freshness
-        Q["Sync into JURISDICTION_CLAUSE<br/>(Municode only, hash-deduped)"]:::freshness
+        Q["Sync into JURISDICTION_CLAUSE<br/>(Municode + state code PDF, hash-deduped)"]:::freshness
         N --> O --> P
-        P -->|"municode source only"| Q
+        P -->|"municode or state_code_pdf source"| Q
     end
 
     C --> D

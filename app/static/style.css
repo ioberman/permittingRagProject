@@ -632,7 +632,7 @@ mark.clause-highlight { background: var(--accent-soft); color: var(--ink); borde
    plain white separator between states reads fine on both fill colors in
    either theme). */
 .jurisdictions-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
-.jurisdictions-toolbar .summary--compact { margin-bottom: 0; }
+.icc-banner-block .summary--compact { margin-bottom: 0; }
 .summary--compact .summary-card { padding: 0.4rem 0.8rem; min-width: 0; }
 .summary--compact .summary-card .n { font-size: 1.05rem; }
 .summary--compact .summary-card .l { font-size: 0.68rem; }

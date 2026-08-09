@@ -89,6 +89,8 @@ from app.models import (
     Flag,
     FlagSeverity,
     FlagStatus,
+    FreshnessSnapshot,
+    FreshnessSource,
     Jurisdiction,
     JurisdictionClause,
     JurisdictionDocument,
@@ -1386,6 +1388,40 @@ def download(document_id):
         mimetype="application/octet-stream",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@app.get("/freshness/<source_id>/raw")
+def freshness_raw_snapshot(source_id):
+    """Serves the most recent raw fetch for a freshness source - the actual
+    ICC sitemap XML, Municode CodesContent JSON, or state code PDF a check
+    produced, not just the derived signal (e.g. an edition year) shown on the
+    dashboard. Without
+    this there was no way to see what was actually scraped, which cuts
+    against this project's whole "explainable, not just a black-box number"
+    principle (see CLAUDE.md's citation-backed-flags requirement - the same
+    idea applies to freshness data, not just conflict flags."""
+    session = get_session()
+    source = session.get(FreshnessSource, source_id)
+    if source is None:
+        return redirect("/jurisdictions?error=Freshness source not found")
+
+    latest = (
+        session.query(FreshnessSnapshot)
+        .filter_by(source_id=source_id)
+        .order_by(FreshnessSnapshot.fetched_at.desc())
+        .first()
+    )
+    if latest is None:
+        return redirect("/jurisdictions?error=No data has been fetched for this source yet")
+
+    content = storage.load(latest.raw_content_uri)
+    if latest.raw_content_uri.endswith(".xml"):
+        mimetype = "application/xml"
+    elif latest.raw_content_uri.endswith(".pdf"):
+        mimetype = "application/pdf"
+    else:
+        mimetype = "application/json"
+    return Response(content, mimetype=mimetype)
 
 
 if __name__ == "__main__":

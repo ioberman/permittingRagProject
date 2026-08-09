@@ -45,12 +45,12 @@ flowchart TD
     end
 
     subgraph S6["6 - FRESHNESS MONITORING (background, independent of any submission)"]
-        N["Scheduled fetch<br/>ICC daily / Municode every 4h"]:::freshness
+        N["Scheduled fetch<br/>ICC daily / Municode every 4h / state code PDF daily"]:::freshness
         O["Hash + diff vs.<br/>last snapshot"]:::freshness
         P[("Snapshot + change record<br/>(every fetch, for audit)")]:::freshness
-        Q["Sync into JURISDICTION_CLAUSE<br/>(Municode only, hash-deduped)"]:::freshness
+        Q["Sync into JURISDICTION_CLAUSE<br/>(Municode + state code PDF, hash-deduped)"]:::freshness
         N --> O --> P
-        P -->|"municode source only"| Q
+        P -->|"municode or state_code_pdf source"| Q
     end
 
     C --> D
@@ -102,17 +102,29 @@ flowchart TD
 6. **Freshness monitoring** — a separate background loop (`app/freshness/`),
    not triggered by any submission or check: a scheduler thread polls each
    configured source (ICC's edition sitemap daily, a Municode jurisdiction's
-   ordinance chapter every 4h by default) and always records a snapshot,
-   writing a change record only when the fetch's content hash actually
-   differs from the last one. For a Municode source specifically, that fetch
-   is also synced into `JURISDICTION_CLAUSE` (hash-deduped, so unchanged
-   sections don't create duplicate rows) — feeding the *same* candidate pool
-   stage 2's "vs. code" retrieval searches, not just a separate dashboard.
+   ordinance chapter every 4h, a state-published code PDF daily) and always
+   records a snapshot, writing a change record only when the fetch's content
+   hash actually differs from the last one. For a Municode or state-code-PDF
+   source specifically, that fetch is also synced into `JURISDICTION_CLAUSE`
+   (hash-deduped, so unchanged sections don't create duplicate rows) —
+   feeding the *same* candidate pool stage 2's "vs. code" retrieval searches,
+   not just a separate dashboard. This matters beyond convenience: a
+   jurisdiction's Municode ordinance is usually just its *local amendments*
+   ("adopts the 2021 IBC, changes sections X and Y") - without the base code
+   text too, retrieval has nothing to find for the other 95% of provisions
+   nobody locally amended, so a real violation there would go undetected not
+   because the LLM reasoned wrong, but because it was never shown anything
+   relevant (see app/llm.py's citation-grounding - the model can only cite
+   clause_ids it was actually shown, never its own training-data knowledge of
+   what a code "generally" says). The state code PDF closes that gap wherever
+   a state publishes one for free (confirmed for CT/RI/NJ; not every state
+   does - e.g. Pennsylvania has no free full-text equivalent).
    ICC sources aren't synced into any clause pool - an edition-year signal
    isn't clause text to reason over, just a coarse "has the base code
-   revved" indicator. Public/unofficial sources only (POC scope); see
-   `app/freshness/icc.py` and `app/freshness/municode.py` for the
-   fragility/schema-drift caveats on each.
+   revved" indicator. Public/unofficial sources only for ICC/Municode (POC
+   scope); state code PDFs are genuine official public-record documents. See
+   `app/freshness/icc.py`, `app/freshness/municode.py`, and
+   `app/freshness/state_code.py` for source-specific caveats.
 
 ## Presentation version
 
