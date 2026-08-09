@@ -106,6 +106,7 @@ header.site .wrap { display: flex; align-items: baseline; justify-content: space
 .site-nav a, nav a { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-soft); text-decoration: none; margin-left: 2rem; }
 .site-nav a:first-child, nav a:first-child { margin-left: 0; }
 .site-nav a:hover, nav a:hover { color: var(--accent); }
+.site-nav a.active { color: var(--accent); font-weight: 600; }
 
 .nav-dropdown { display: inline-block; position: relative; margin-left: 2rem; }
 .nav-dropdown-toggle {
@@ -301,6 +302,13 @@ h2 {
 .candidates-table td, .candidates-table th, .jurisdictions-table td, .jurisdictions-table th,
 .clauses-table td, .clauses-table th, .audit-table td, .audit-table th,
 .projects-table td, .projects-table th, .sheets-table td, .sheets-table th { overflow-wrap: break-word; }
+/* .label's global white-space: nowrap (fine for short labels like "4.2" or
+   sheet numbers) forces long labels onto one line regardless of the
+   break-word rule above, which then overflows a fixed-width column right on
+   top of the next one - exactly what happened with Municode section titles
+   like "Chapter 131 - CONSTRUCTION CODES, UNIFORM", which are full sentences,
+   not short numbered labels. Let this table's labels wrap normally. */
+.clauses-table .label { white-space: normal; }
 
 .clause-search { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
 .clause-search input[type="search"] { width: 22rem; max-width: 60vw; margin-top: 0; }
@@ -548,6 +556,11 @@ mark.clause-highlight { background: var(--accent-soft); color: var(--ink); borde
   background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   width: 100%; max-width: 960px; max-height: 100%; display: flex; flex-direction: column; overflow: hidden;
 }
+/* The workflow/ERD diagrams (15 ER entities, 6 flowchart subgraphs) read as
+   cramped at the default modal width, shared with much simpler dialogs (the
+   jurisdiction-add form) that don't need the extra room - scoped wider here
+   rather than widening .modal itself. */
+.diagrams-modal { max-width: 1400px; }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 0.75rem 0.75rem 1.4rem;
   border-bottom: 1px solid var(--rule);
@@ -612,4 +625,66 @@ mark.clause-highlight { background: var(--accent-soft); color: var(--ink); borde
 }
 .graph-tooltip.show { opacity: 1; }
 .graph-tooltip .sev-high, .graph-tooltip .sev-medium, .graph-tooltip .sev-low { font-weight: 700; }
+
+/* US jurisdictions map (app/templates/_us_map.html) - the SVG's own embedded
+   <style> sets a hardcoded default gray fill; overridden here so it follows
+   the theme instead, same reason .borders' white stroke is left alone (a
+   plain white separator between states reads fine on both fill colors in
+   either theme). */
+.jurisdictions-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.jurisdictions-toolbar .summary--compact { margin-bottom: 0; }
+.summary--compact .summary-card { padding: 0.4rem 0.8rem; min-width: 0; }
+.summary--compact .summary-card .n { font-size: 1.05rem; }
+.summary--compact .summary-card .l { font-size: 0.68rem; }
+.us-map-controls-row { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex: 1; min-width: 280px; flex-wrap: wrap; }
+.us-map-search-actions { display: flex; align-items: center; gap: 0.75rem; }
+.us-map-search { max-width: 280px; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--ink-soft);
+  background: var(--accent-soft); border-radius: 999px; padding: 0.25rem 0.7rem;
+}
+.filter-chip[hidden] { display: none; }
+.filter-chip button { border: none; background: none; color: var(--ink-soft); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; }
+.filter-chip button:hover { color: var(--ink); }
+.us-map-wrap {
+  position: relative; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  box-shadow: var(--shadow); padding: 1rem; margin-bottom: 2rem;
+}
+.us-map-wrap svg { display: block; width: 100%; height: auto; }
+.map-legend { display: flex; gap: 1.25rem; font-size: 0.8rem; color: var(--ink-soft); }
+.map-legend-item { display: flex; align-items: center; gap: 0.4rem; }
+.map-legend-swatch { width: 14px; height: 14px; border-radius: 3px; background: var(--rule-strong); display: inline-block; }
+.map-legend-swatch--active { background: var(--accent); }
+/* .state (the <g> wrapping every per-state <path>, not any individual path -
+   see _us_map.html) sets the inherited default fill; has-jurisdictions/
+   search-match/search-dim are added by JS directly onto individual <path>
+   elements, never onto that same <g>, so they must NOT be chained onto
+   .state below - an element carrying only "pa has-jurisdictions" would never
+   match ".state.has-jurisdictions". Its own explicit fill still correctly
+   overrides the inherited one regardless. */
+.us-map-wrap .state { fill: var(--rule-strong); }
+.us-map-wrap path[class] { transition: fill 0.15s, opacity 0.15s; }
+.us-map-wrap .has-jurisdictions { fill: var(--accent); cursor: pointer; }
+.us-map-wrap .has-jurisdictions:hover { opacity: 0.8; }
+.us-map-wrap .search-dim { opacity: 0.3; }
+.us-map-wrap .search-match { fill: var(--sev-high, #b3532e); }
+.map-tooltip {
+  position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 0.76rem;
+  padding: 0.5rem 0.7rem; border-radius: 6px; max-width: 220px; line-height: 1.5; opacity: 0; transition: opacity 0.1s;
+  z-index: 5; box-shadow: var(--shadow);
+}
+.map-tooltip.show { opacity: 1; }
+.map-tooltip table { border-collapse: collapse; }
+/* The global `td { color: var(--ink) }` rule targets td directly, which beats
+   inheriting .map-tooltip's own color no matter how specific that ancestor
+   rule is - color set directly on an element always wins over an inherited
+   value. var(--ink) is meant for light-background body text; against this
+   tooltip's dark background it rendered as invisible dark-on-dark text. */
+.map-tooltip td, .map-tooltip th { padding: 0.1rem 0; color: inherit; }
+.map-tooltip a { color: var(--bg); text-decoration: underline; }
+.state-label {
+  text-anchor: middle; dominant-baseline: middle; font-weight: 700; font-family: inherit;
+  fill: #111; stroke: #fff; stroke-width: 2px; paint-order: stroke;
+}
+:root[data-theme="dark"] .state-label { fill: #fff; stroke: #111; }
 

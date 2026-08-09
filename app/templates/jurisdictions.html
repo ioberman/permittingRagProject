@@ -2,49 +2,108 @@
 {% block title %}Jurisdictions - Plan Review Copilot{% endblock %}
 {% block content %}
 
-<div class="eyebrow">Jurisdictions</div>
-<h1 class="serif">Reference code documentation</h1>
+<div class="page-title-row">
+  <div>
+    <div class="eyebrow">Jurisdictions</div>
+    <h1 class="serif">Reference code documentation</h1>
+  </div>
+  <div class="page-title-actions">
+    <button type="button" class="btn ghost sm" onclick="startJurisdictionsTour()">Take a tour</button>
+    <button type="button" class="btn sm" id="add-jurisdiction-btn" onclick="openAddJurisdictionModal()">+ Add jurisdiction</button>
+  </div>
+</div>
 <p class="lede">Only jurisdictions listed here (with at least one document loaded) are selectable when creating a project.</p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
-<form method="post" action="/jurisdictions/documents" enctype="multipart/form-data" id="jurisdiction-upload-form">
-  <fieldset>
-    <label>Jurisdiction name
-      <input name="jurisdiction_name" list="jurisdiction_names" required>
-      <datalist id="jurisdiction_names">
-        {% for j in jurisdictions %}<option value="{{ j.name }}">{% endfor %}
-      </datalist>
-    </label>
-    <label>Files <span class="meta">(select one or more code books, amendments, or permit guides)</span>
-      <input type="file" name="files" id="jurisdiction-files" multiple required>
-    </label>
-    <div id="jurisdiction-file-rows"></div>
-    <button type="submit" id="jurisdiction-upload-submit">Add reference document(s)</button>
-  </fieldset>
-</form>
+<div id="add-jurisdiction-overlay" class="modal-overlay" {% if summary_rows %}hidden{% endif %} onclick="if (event.target === this) closeAddJurisdictionModal();">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Add new jurisdiction">
+    <div class="modal-header">
+      <h2 class="serif" style="font-size: 1.1rem; font-weight: 400; margin: 0;">Add new jurisdiction</h2>
+      <button type="button" class="modal-close" onclick="closeAddJurisdictionModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form method="post" action="/jurisdictions/documents" enctype="multipart/form-data" class="form-body" id="jurisdiction-upload-form">
+        <label class="full">Jurisdiction name <span class="meta">(to add to an existing jurisdiction instead, use its own page)</span>
+          <input name="jurisdiction_name" required>
+        </label>
+        <label class="full">Files <span class="meta">(select one or more code books, amendments, or permit guides)</span>
+          <input type="file" name="files" id="jurisdiction-files" multiple required>
+        </label>
+        <div id="jurisdiction-file-rows" class="full"></div>
+        <div class="full"><button type="submit" id="jurisdiction-upload-submit">Add reference document(s)</button></div>
+      </form>
+    </div>
+  </div>
+</div>
 
-<h2>Loaded jurisdictions</h2>
-<div class="card-table">
+<div class="jurisdictions-toolbar">
+  {% if icc_status %}
+  <div class="summary summary--compact" id="icc-banner">
+    <div class="summary-card"><div class="n">{{ icc_status.last_checked_at }}</div><div class="l">ICC data last queried</div></div>
+    <div class="summary-card"><div class="n">{{ icc_status.latest_edition_year or "-" }}</div><div class="l">Current I-Codes edition</div></div>
+    <span class="info-tooltip" tabindex="0" style="align-self: center;">
+      <span class="info-tooltip-icon" aria-hidden="true">i</span>
+      <span class="info-tooltip-content">Base model code (IBC/IRC/etc.) freshness, checked daily against ICC's own
+        site - applies across every jurisdiction below, not any one of them specifically. Public/unofficial source
+        (POC scope), not a substitute for licensed ICC Code Connect / UpCodes coverage.</span>
+    </span>
+  </div>
+  {% endif %}
+
+  <div class="us-map-controls-row">
+    <div class="map-legend">
+      <span class="map-legend-item"><span class="map-legend-swatch map-legend-swatch--active"></span> Jurisdiction on file</span>
+      <span class="map-legend-item"><span class="map-legend-swatch"></span> No jurisdiction yet</span>
+    </div>
+    <div class="us-map-search-actions">
+      <input type="search" id="jurisdiction-search" class="us-map-search" placeholder="Search jurisdictions&hellip;">
+      <span id="map-filter-chip" class="filter-chip" hidden>
+        Showing <span id="map-filter-chip-label"></span>
+        <button type="button" onclick="clearStateFilter()" aria-label="Clear state filter">&times;</button>
+      </span>
+    </div>
+  </div>
+</div>
+<div class="us-map-wrap" id="us-map-wrap">
+  {% include "_us_map.html" %}
+  <div class="map-tooltip" id="map-tooltip"></div>
+</div>
+
+<h2>Jurisdictions <span id="table-filter-note" class="meta" hidden></span></h2>
+<div class="card-table" id="jurisdictions-summary-table">
 <table class="jurisdictions-table">
   <colgroup>
-    <col style="width: 22%">
-    <col style="width: 40%">
-    <col style="width: 12%">
-    <col style="width: 12%">
-    <col style="width: 14%">
+    <col style="width: 28%">
+    <col style="width: 26%">
+    <col style="width: 15%">
+    <col style="width: 13%">
+    <col style="width: 18%">
   </colgroup>
-  <tr><th>Jurisdiction</th><th>Document</th><th>Type</th><th>Clauses</th><th>Ingested</th></tr>
-  {% for row in rows %}
-  <tr>
-    <td>{{ row.jurisdiction_name }}</td>
-    <td>{{ row.title }}</td>
-    <td>{{ row.doc_type }}</td>
+  <tr><th>Jurisdiction</th><th>Live monitoring</th><th>Manually uploaded</th><th>Clauses available</th><th></th></tr>
+  {% for row in summary_rows %}
+  <tr data-id="{{ row.id }}" data-name="{{ row.name|lower }}" data-state="{{ row.state_abbr or '' }}">
+    <td>{{ row.name }}</td>
     <td>
-      {% if row.clause_count %}<a href="/jurisdictions/documents/{{ row.id }}/clauses">{{ row.clause_count }}</a>{% else %}0{% endif %}
+      {% if row.live_status %}
+        {% if row.live_status.changed_on_last_check %}
+          <span class="status-pill status-acknowledged">changed {{ row.live_status.last_change_at.strftime("%Y-%m-%d %H:%M") }}</span>
+        {% elif row.live_status.last_checked_at %}
+          <span class="status-pill status-resolved">checked {{ row.live_status.last_checked_at.strftime("%Y-%m-%d %H:%M") }}</span>
+        {% else %}
+          <span class="status-none">not yet checked</span>
+        {% endif %}
+      {% else %}
+        <span class="status-none">not monitored</span>
+      {% endif %}
     </td>
-    <td>{{ row.ingested_at }}</td>
+    <td>{{ row.uploaded_count }}</td>
+    <td>{{ row.clause_count }}</td>
+    <td><a href="/jurisdictions/{{ row.id }}" class="action-link">view details &rarr;</a></td>
   </tr>
+  {% else %}
+  <tr><td colspan="5" class="meta">No jurisdictions yet - add one below.</td></tr>
   {% endfor %}
+  <tr id="no-search-results-row" class="meta" hidden><td colspan="5">No jurisdictions match your search.</td></tr>
 </table>
 </div>
 
@@ -52,6 +111,24 @@
 
 {% block extra_scripts %}
 <script>
+  function openAddJurisdictionModal() {
+    document.getElementById('add-jurisdiction-overlay').hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function closeAddJurisdictionModal() {
+    document.getElementById('add-jurisdiction-overlay').hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  function startJurisdictionsTour() {
+    startTour([
+      {% if icc_status %}{ selector: '#icc-banner', text: 'Base model code (IBC/IRC/etc.) freshness, checked daily against ICC\'s own site - applies across every jurisdiction below, not any one of them specifically.' },{% endif %}
+      { selector: '#us-map-wrap', text: 'States with at least one jurisdiction set up are shaded - hover to see which, click to filter the table below to just that state, or use the search box for a text search instead.' },
+      { selector: '#jurisdictions-summary-table', text: 'Every jurisdiction you\'ve set up, whether its code is monitored live from a public source, and how many documents you\'ve uploaded for it - click into one for the full picture.' },
+      { selector: '#add-jurisdiction-btn', text: 'Add a brand-new jurisdiction here. To add more documents to one that already exists, open its own page instead.' },
+    ]);
+  }
+
   const jurisdictionFilesInput = document.getElementById('jurisdiction-files');
   const jurisdictionFileRows = document.getElementById('jurisdiction-file-rows');
 
@@ -90,5 +167,141 @@
   }
 
   jurisdictionFilesInput.addEventListener('change', renderJurisdictionFileRows);
+
+  // Interactive US map: states are colored/hovered/clicked based on the
+  // jurisdictions table's own data-state/data-name attributes (set server-side
+  // in status.py's state_abbr_from_name) - the map has no data of its own,
+  // it's just another view onto the same table rows, so the two can never
+  // drift out of sync with each other.
+  (function initUsMap() {
+    const svg = document.getElementById('us-map-svg');
+    if (!svg) return;
+    const tooltip = document.getElementById('map-tooltip');
+    const mapWrap = document.getElementById('us-map-wrap');
+    const rows = Array.from(document.querySelectorAll('#jurisdictions-summary-table tr[data-name]'));
+    const searchInput = document.getElementById('jurisdiction-search');
+    const filterChip = document.getElementById('map-filter-chip');
+    const filterChipLabel = document.getElementById('map-filter-chip-label');
+    const tableSection = document.getElementById('jurisdictions-summary-table');
+    const tableFilterNote = document.getElementById('table-filter-note');
+    const noResultsRow = document.getElementById('no-search-results-row');
+
+    // Built with DOM methods rather than an innerHTML template string -
+    // textContent below is inherently safe against a jurisdiction name
+    // containing markup, and there's no string-escaping step to get wrong.
+    function buildTooltipContent(abbr, names) {
+      const frag = document.createDocumentFragment();
+      if (!names || !names.length) {
+        const strong = document.createElement('strong');
+        strong.textContent = abbr.toUpperCase();
+        frag.append(strong, document.createElement('br'), 'No jurisdictions here yet');
+        return frag;
+      }
+      const table = document.createElement('table');
+      const headRow = table.insertRow();
+      const th = document.createElement('th');
+      th.style.textAlign = 'left';
+      th.textContent = `${abbr.toUpperCase()} (${names.length})`;
+      headRow.appendChild(th);
+      names.forEach((name) => {
+        table.insertRow().insertCell().textContent = name;
+      });
+      frag.appendChild(table);
+      return frag;
+    }
+
+    const byState = {};
+    rows.forEach((row) => {
+      const state = row.dataset.state;
+      if (!state) return;
+      const displayName = row.querySelector('td').textContent.trim();
+      (byState[state] = byState[state] || []).push(displayName);
+    });
+
+    let activeStateFilter = null;
+
+    Object.keys(byState).forEach((abbr) => {
+      const path = svg.querySelector('path.' + abbr);
+      if (path) path.classList.add('has-jurisdictions');
+    });
+
+    svg.querySelectorAll('path[class]').forEach((path) => {
+      const abbr = path.getAttribute('class').split(' ')[0];
+      if (!/^[a-z]{2}$/.test(abbr)) return;  // skip .borders/.separator1/etc.
+
+      path.addEventListener('mousemove', (ev) => {
+        const wrapRect = mapWrap.getBoundingClientRect();
+        tooltip.replaceChildren(buildTooltipContent(abbr, byState[abbr]));
+        tooltip.style.left = (ev.clientX - wrapRect.left + 14) + 'px';
+        tooltip.style.top = (ev.clientY - wrapRect.top + 10) + 'px';
+        tooltip.classList.add('show');
+      });
+      path.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+      path.addEventListener('click', (ev) => {
+        ev.stopPropagation();  // don't let this bubble to mapWrap's "click anywhere clears" handler below
+        if (byState[abbr]) {
+          activeStateFilter = abbr;
+          searchInput.value = '';
+          applyFilter();
+          // The table this just filtered can be well below the fold - without
+          // this, clicking a state appears to do nothing unless you're
+          // already scrolled down far enough to see it change.
+          tableSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          clearStateFilter();  // clicked a state with no data - same as clicking blank map area
+        }
+      });
+    });
+
+    // Click anywhere else on the map (a state with no jurisdictions, or the
+    // blank space around/between states) clears whichever state is selected.
+    mapWrap.addEventListener('click', () => clearStateFilter());
+
+    function applyFilter() {
+      const query = searchInput.value.trim().toLowerCase();
+      const matchedStates = new Set();
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const nameMatches = !query || row.dataset.name.includes(query);
+        const stateMatches = !activeStateFilter || row.dataset.state === activeStateFilter;
+        const visible = nameMatches && stateMatches;
+        row.hidden = !visible;
+        if (visible) {
+          visibleCount++;
+          if (row.dataset.state) matchedStates.add(row.dataset.state);
+        }
+      });
+
+      const filtering = !!query || !!activeStateFilter;
+      svg.querySelectorAll('path.has-jurisdictions').forEach((path) => {
+        const abbr = path.classList[0];
+        path.classList.toggle('search-match', filtering && matchedStates.has(abbr));
+        path.classList.toggle('search-dim', filtering && !matchedStates.has(abbr));
+      });
+
+      filterChip.hidden = !activeStateFilter;
+      filterChipLabel.textContent = activeStateFilter ? activeStateFilter.toUpperCase() : '';
+
+      const filteringForNote = !!query || !!activeStateFilter;
+      tableFilterNote.hidden = !filteringForNote;
+      if (filteringForNote) {
+        tableFilterNote.textContent = activeStateFilter
+          ? `— showing ${visibleCount} in ${activeStateFilter.toUpperCase()}`
+          : `— ${visibleCount} matching “${searchInput.value.trim()}”`;
+      }
+
+      noResultsRow.hidden = !(filtering && rows.length > 0 && visibleCount === 0);
+    }
+
+    window.clearStateFilter = function () {
+      activeStateFilter = null;
+      applyFilter();
+    };
+
+    searchInput.addEventListener('input', () => {
+      activeStateFilter = null;
+      applyFilter();
+    });
+  })();
 </script>
 {% endblock %}

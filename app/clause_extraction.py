@@ -304,16 +304,21 @@ def extract_and_store_clauses(session: Session, document: Document) -> int:
     return count
 
 
-def _get_or_create_jurisdiction_clause(
+def get_or_create_jurisdiction_clause(
     session: Session,
     document: JurisdictionDocument,
     label: str,
     text: str,
-    page_number: int,
+    location: dict,
     method: ExtractionMethod,
 ) -> JurisdictionClause:
     """No DocumentClause-style link table here - each JurisdictionClause belongs
-    to exactly one JurisdictionDocument (no revisioning to dedup across yet)."""
+    to exactly one JurisdictionDocument (no revisioning to dedup across yet).
+
+    Public (not module-private) because app/freshness/jurisdiction_sync.py
+    reuses this same identity/dedup logic for Municode-scraped content, so a
+    section whose text hasn't changed since the last scrape reuses its
+    existing row instead of accumulating duplicates."""
     content_hash = hashlib.sha256(f"{label}|{text}".encode()).hexdigest()
     clause = session.query(JurisdictionClause).filter_by(
         jurisdiction_document_id=document.id, content_hash=content_hash
@@ -325,7 +330,7 @@ def _get_or_create_jurisdiction_clause(
             text=text,
             content_hash=content_hash,
             extraction_method=method,
-            location={"page": page_number},
+            location=location,
         )
         session.add(clause)
         session.flush()
@@ -355,7 +360,7 @@ def extract_and_store_jurisdiction_clauses(
     if precomputed_clauses is not None:
         count = 0
         for label, body, page_number in precomputed_clauses:
-            _get_or_create_jurisdiction_clause(session, document, label, body, page_number, method)
+            get_or_create_jurisdiction_clause(session, document, label, body, {"page": page_number}, method)
             count += 1
         session.flush()
         return count
@@ -367,7 +372,7 @@ def extract_and_store_jurisdiction_clauses(
     count = 0
     for page_number, page_text in enumerate(pages, start=1):
         for label, body in split_into_clauses(page_text):
-            _get_or_create_jurisdiction_clause(session, document, label, body, page_number, method)
+            get_or_create_jurisdiction_clause(session, document, label, body, {"page": page_number}, method)
             count += 1
 
     session.flush()

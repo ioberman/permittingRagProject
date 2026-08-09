@@ -61,6 +61,9 @@ from app.conflict_detection import check_submission_for_conflicts
 from app.cross_discipline_detection import check_submission_for_cross_discipline_conflicts
 from app.db import get_session as _get_session
 from app.db import init_db
+from app.freshness.scheduler import start_scheduler
+from app.freshness.seed import ensure_default_sources
+from app.freshness.status import icc_banner_status, jurisdiction_detail, jurisdiction_summary_rows
 from app.ingest import (
     DEFAULT_SUBMITTED_BY,
     delete_project_cascade,
@@ -108,6 +111,13 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 # it to not chase a "bug" that's actually just a stale server.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 init_db()
+
+_seed_session = _get_session()
+try:
+    ensure_default_sources(_seed_session)
+finally:
+    _seed_session.close()
+start_scheduler()
 
 # Tracks checks running in a background thread (see check()/check_cross_discipline()
 # below) so the project page can show "running" and poll instead of a request
@@ -502,6 +512,24 @@ def delete_project(project_id):
     return redirect(f"/?{urlencode({'deleted': project_name})}")
 
 
+def _real_engine_block_reason(engine: str) -> str | None:
+    """Gate on the "real" engine specifically - app/llm.py's actual Claude
+    client, the only engine that spends real Anthropic API credits (mock is a
+    local keyword heuristic, groq/preview cost nothing here). Same
+    fail-closed shape as delete_project's DELETE_PASSWORD: if
+    LLM_CHECK_PASSWORD isn't configured on this deploy, the real engine is
+    disabled outright rather than silently open to anyone who submits an
+    empty password. Returns None if the check may proceed."""
+    if engine != "real":
+        return None
+    configured_password = os.environ.get("LLM_CHECK_PASSWORD")
+    if not configured_password:
+        return "Running the real (billed) engine is disabled (LLM_CHECK_PASSWORD is not configured on this server)."
+    if request.form.get("llm_password") != configured_password:
+        return "Incorrect password - real engine check not started."
+    return None
+
+
 @app.get("/projects/<project_id>")
 def project_detail(project_id):
     session = get_session()
@@ -747,9 +775,13 @@ def check(project_id):
     if _is_check_running(project_id, CheckType.JURISDICTION.value):
         return redirect(f"/projects/{project_id}?error=A vs. code check is already running for this project.")
 
+    engine = request.form.get("engine", "mock")
+    block_reason = _real_engine_block_reason(engine)
+    if block_reason:
+        return redirect(f"/projects/{project_id}?{urlencode({'error': block_reason})}")
+
     submission = get_latest_or_create_submission(session, project.id)
     session.commit()
-    engine = request.form.get("engine", "mock")
     force = request.form.get("force") == "1"
     submission_id = submission.id
 
@@ -815,6 +847,10 @@ def check_cross_discipline(project_id):
 
     if _is_check_running(project_id, CheckType.CROSS_DISCIPLINE.value):
         return redirect(f"/projects/{project_id}?error=A cross-discipline check is already running for this project.")
+
+    block_reason = _real_engine_block_reason(engine)
+    if block_reason:
+        return redirect(f"/projects/{project_id}?{urlencode({'error': block_reason})}")
 
     submission = get_latest_or_create_submission(session, project.id)
     session.commit()
@@ -1060,17 +1096,30 @@ def flag_reasoning(flag_id):
 @app.get("/jurisdictions")
 def jurisdictions():
     session = get_session()
-    all_jurisdictions = session.query(Jurisdiction).order_by(Jurisdiction.name).all()
+    return render_template(
+        "jurisdictions.html",
+        summary_rows=jurisdiction_summary_rows(session),
+        icc_status=icc_banner_status(session),
+        error=request.args.get("error"),
+    )
+
+
+@app.get("/jurisdictions/<jurisdiction_id>")
+def jurisdiction_detail_page(jurisdiction_id):
+    session = get_session()
+    jurisdiction = session.get(Jurisdiction, jurisdiction_id)
+    if jurisdiction is None:
+        return redirect("/jurisdictions?error=Jurisdiction not found")
+
     documents = (
         session.query(JurisdictionDocument)
-        .join(Jurisdiction)
+        .filter_by(jurisdiction_id=jurisdiction_id)
         .order_by(JurisdictionDocument.ingested_at.desc())
         .all()
     )
-    rows = [
+    document_rows = [
         {
             "id": d.id,
-            "jurisdiction_name": d.jurisdiction.name,
             "title": d.title,
             "doc_type": d.doc_type.value,
             "clause_count": session.query(JurisdictionClause).filter_by(jurisdiction_document_id=d.id).count(),
@@ -1079,9 +1128,10 @@ def jurisdictions():
         for d in documents
     ]
     return render_template(
-        "jurisdictions.html",
-        jurisdictions=all_jurisdictions,
-        rows=rows,
+        "jurisdiction_detail.html",
+        jurisdiction=jurisdiction,
+        document_rows=document_rows,
+        detail=jurisdiction_detail(session, jurisdiction_id),
         error=request.args.get("error"),
     )
 
@@ -1129,7 +1179,7 @@ def add_jurisdiction_document():
         )
         extract_and_store_jurisdiction_clauses(session, document)
     session.commit()
-    return redirect("/jurisdictions")
+    return redirect(f"/jurisdictions/{jurisdiction.id}")
 
 
 @app.get("/jurisdictions/documents/<document_id>/clauses")
@@ -1150,7 +1200,7 @@ def jurisdiction_document_clauses(document_id):
 
     return render_template(
         "clauses.html",
-        back_href="/jurisdictions",
+        back_href=f"/jurisdictions/{document.jurisdiction_id}",
         sheet_number=document.jurisdiction.name,
         title=document.title,
         project="(jurisdiction reference document)",

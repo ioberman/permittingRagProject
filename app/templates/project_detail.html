@@ -40,15 +40,17 @@
     </div>
     <div class="check-controls">
       <label class="field-label">Engine
-        <select name="engine" class="engine-select" id="jurisdiction-engine-select">
-          <option value="mock">mock (no API key)</option>
-          <option value="groq">groq (free tier)</option>
-          <option value="real">real (Claude, paid)</option>
+        <select name="engine" class="engine-select" id="jurisdiction-engine-select" onchange="toggleRealEnginePassword('jurisdiction')">
+          <option value="mock" title="Keyword heuristic, not real model reasoning - runs with no setup or cost, any flag it produces is marked 'simulated'">Demo (no cost)</option>
+          <option value="groq" title="Real LLM reasoning via a free-tier provider - faster and cheaper than full analysis, good for quick iteration">Fast preview (free)</option>
+          <option value="real" title="Claude, this deployment's production reasoning engine - usage is billed">Full analysis (billed)</option>
         </select>
       </label>
       <label class="inline-check" title="Re-check every current clause from scratch, instead of only the ones never checked before">
         <input type="checkbox" name="force" value="1"> Full re-check
       </label>
+      <input type="password" name="llm_password" id="jurisdiction-llm-password" placeholder="Billed-engine password" hidden
+             title="Required to run the real (billed) engine - set by whoever runs this deployment, prevents random visitors from spending its Anthropic credits">
       <span class="check-status-msg" id="jurisdiction-check-status"></span>
       <button type="submit" class="btn sm" id="jurisdiction-check-submit">Run check</button>
     </div>
@@ -60,15 +62,17 @@
     </div>
     <div class="check-controls">
       <label class="field-label">Engine
-        <select name="engine" class="engine-select" id="cross-discipline-engine-select" onchange="document.getElementById('cross-check-submit').textContent = this.value === 'preview' ? 'Preview candidates (not saved)' : 'Run check'">
-          <option value="preview" title="Shows the semantic-similarity matches without judging conflict vs. no conflict - no API key needed, but nothing is saved as a flag">preview (no LLM)</option>
-          <option value="groq">groq (free tier)</option>
-          <option value="real">real (Claude, paid)</option>
+        <select name="engine" class="engine-select" id="cross-discipline-engine-select" onchange="document.getElementById('cross-check-submit').textContent = this.value === 'preview' ? 'Preview candidates (not saved)' : 'Run check'; toggleRealEnginePassword('cross-discipline')">
+          <option value="preview" title="Shows the semantic-similarity matches without judging conflict vs. no conflict - no cost, but nothing is saved as a flag">Retrieval preview (free)</option>
+          <option value="groq" title="Real LLM reasoning via a free-tier provider - faster and cheaper than full analysis, good for quick iteration">Fast preview (free)</option>
+          <option value="real" title="Claude, this deployment's production reasoning engine - usage is billed">Full analysis (billed)</option>
         </select>
       </label>
       <label class="inline-check" title="Re-check every current clause from scratch, instead of only the ones never checked before">
         <input type="checkbox" name="force" value="1"> Full re-check
       </label>
+      <input type="password" name="llm_password" id="cross-discipline-llm-password" placeholder="Billed-engine password" hidden
+             title="Required to run the real (billed) engine - set by whoever runs this deployment, prevents random visitors from spending its Anthropic credits">
       <span class="check-status-msg" id="cross-discipline-check-status"></span>
       <button type="submit" class="btn sm" id="cross-check-submit">Preview candidates (not saved)</button>
     </div>
@@ -218,6 +222,17 @@
 {% block extra_scripts %}
 <script>
   const PROJECT_ID = "{{ project.id }}";
+
+  // Only a UX affordance, not the actual security boundary - the password is
+  // still required and checked server-side (_real_engine_block_reason in
+  // app/web.py) regardless of whether this field was shown or filled in.
+  function toggleRealEnginePassword(prefix) {
+    const select = document.getElementById(prefix + '-engine-select');
+    const passwordInput = document.getElementById(prefix + '-llm-password');
+    const isReal = select.value === 'real';
+    passwordInput.hidden = !isReal;
+    passwordInput.required = isReal;
+  }
 
   function startProjectTour() {
     startTour([

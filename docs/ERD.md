@@ -17,10 +17,10 @@ erDiagram
         string id PK
         string jurisdiction_id FK
         string title
-        string doc_type "bim | pdf_2d | spec"
+        string doc_type "bim | pdf_2d | spec | municode_scrape"
         string file_uri
         string file_hash
-        json metadata "nullable"
+        json metadata "nullable - freshness_source_id links a municode_scrape doc back to its FRESHNESS_SOURCE"
         datetime ingested_at
     }
 
@@ -30,7 +30,7 @@ erDiagram
         string clause_label
         string text
         string content_hash UK "unique per jurisdiction_document"
-        string extraction_method "pdf_text | spec_text | ifc_property | manual"
+        string extraction_method "pdf_text | spec_text | ifc_property | manual | municode_scrape"
         json location
         datetime created_at
     }
@@ -127,9 +127,39 @@ erDiagram
         string jurisdiction_clause_id FK "nullable - jurisdiction-clause citation"
     }
 
+    FRESHNESS_SOURCE {
+        string id PK
+        string kind "municode | icc_public"
+        string label
+        string jurisdiction_id FK "nullable - null for icc_public, which isn't jurisdiction-specific"
+        string source_ref "municode: 'productId:nodeId' | icc_public: sitemap URL"
+        int check_interval_seconds
+        datetime created_at
+    }
+
+    FRESHNESS_SNAPSHOT {
+        string id PK
+        string source_id FK
+        datetime fetched_at
+        string content_hash "sha256 of normalized content, not raw bytes"
+        string raw_content_uri "content-addressable, same LocalFileStorage as documents"
+    }
+
+    FRESHNESS_CHANGE {
+        string id PK
+        string source_id FK
+        datetime detected_at
+        string prev_snapshot_id FK "nullable - null on a source's first-ever snapshot"
+        string new_snapshot_id FK
+        string summary "human-readable - which section/edition-year changed"
+    }
+
     JURISDICTION ||--o{ JURISDICTION_DOCUMENT : "has reference docs"
     JURISDICTION_DOCUMENT ||--o{ JURISDICTION_CLAUSE : "owns"
     JURISDICTION ||--o{ PROJECT : "governs"
+    JURISDICTION |o--o{ FRESHNESS_SOURCE : "optionally monitored by"
+    FRESHNESS_SOURCE ||--o{ FRESHNESS_SNAPSHOT : "fetched into"
+    FRESHNESS_SOURCE ||--o{ FRESHNESS_CHANGE : "detected on"
 
     PROJECT ||--o{ SUBMISSION : "has revisions"
     PROJECT ||--o{ DOCUMENT_SERIES : "has sheets/specs"
@@ -205,3 +235,25 @@ erDiagram
   on `/metrics`. This is the "pilot alongside human review" hook — it lets a
   reviewer record what the tool got right or wrong without a separate system
   comparing against an independent review pass.
+- **`FRESHNESS_SOURCE → FRESHNESS_SNAPSHOT/FRESHNESS_CHANGE`** is a separate
+  chain feeding the jurisdiction-code-freshness POC
+  (`app/freshness/*`), scheduled independently of any submission - every
+  fetch writes a `FRESHNESS_SNAPSHOT` (for audit, even when nothing changed);
+  a `FRESHNESS_CHANGE` row is written only when a fetch's content hash
+  differs from the source's previous snapshot. `FRESHNESS_SOURCE.jurisdiction_id`
+  is nullable because `icc_public` sources (base model code editions) apply
+  across every jurisdiction, not one in particular - only `municode` sources
+  are tied to a specific `JURISDICTION`.
+- **A `municode`-kind `FRESHNESS_SOURCE`'s content also feeds
+  `JURISDICTION_CLAUSE`** (`app/freshness/jurisdiction_sync.py`), not just the
+  freshness dashboard: each scraped section becomes a `JURISDICTION_CLAUSE`
+  row (`extraction_method = municode_scrape`) under a synthetic
+  `JURISDICTION_DOCUMENT` (`doc_type = municode_scrape`), so it's picked up by
+  the same retrieval pool (`find_candidate_jurisdiction_clauses`) as a
+  human-uploaded document. That link is `JURISDICTION_DOCUMENT.metadata_
+  ->> freshness_source_id`, not a real foreign key (no schema migration
+  tooling exists yet to add one to an already-populated table), so it isn't
+  drawn as a formal relationship above. Retrieval prefers whichever of an
+  uploaded vs. scraped clause was more recently confirmed current on a
+  near-tied match, via `JURISDICTION_DOCUMENT.ingested_at` - not "uploaded
+  always wins," since a stale upload shouldn't outrank a same-day scrape.

@@ -2,15 +2,23 @@
 {% block title %}Metrics - Plan Review Copilot{% endblock %}
 {% block content %}
 
-<div class="eyebrow">Metrics</div>
-<h1 class="serif">Portfolio metrics</h1>
-<p class="lede">What this tool can actually measure from its own data - not a
-  first-pass approval rate or a dollar rework figure. Those need real
-  jurisdiction approval/rejection outcomes this app doesn't have visibility
-  into; reporting them from flag counts alone would be a guess dressed up as
-  a metric. Precision below only reflects flags reviewers have marked via the
-  status control on the <a href="/">flags page</a> - it stays blank until
-  reviewers start using it.</p>
+<div class="page-title-row">
+  <div>
+    <div class="eyebrow">Metrics</div>
+    <h1 class="serif">Portfolio metrics</h1>
+  </div>
+  <div class="page-title-actions">
+    <span class="info-tooltip" tabindex="0">
+      <span class="info-tooltip-icon" aria-hidden="true">i</span>
+      <span class="info-tooltip-content">What this tool can actually measure from its own data - not a
+        first-pass approval rate or a dollar rework figure. Those need real jurisdiction approval/rejection
+        outcomes this app doesn't have visibility into; reporting them from flag counts alone would be a guess
+        dressed up as a metric. Precision below only reflects flags reviewers have marked via the status control
+        on the flags page - it stays blank until reviewers start using it.</span>
+    </span>
+  </div>
+</div>
+<p class="lede">Flags caught, reviewer-confirmed precision, and cycle time - see the <a href="/">flags page</a> to mark a flag's outcome.</p>
 
 <div class="summary">
   <div class="summary-card"><div class="n">{{ all_flags_total }}</div><div class="l">Flags caught, all projects</div></div>

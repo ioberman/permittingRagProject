@@ -24,9 +24,9 @@
     <a class="wordmark serif" href="/">Plan Review <span class="thin">Copilot</span></a>
     <div class="header-right">
       <nav class="site-nav">
-        <a href="/">Projects</a>
-        <a href="/jurisdictions">Jurisdictions</a>
-        <a href="/metrics">Metrics</a>
+        <a href="/" {% if request.path == '/' or request.path.startswith('/projects') %}class="active"{% endif %}>Projects</a>
+        <a href="/jurisdictions" {% if request.path.startswith('/jurisdictions') %}class="active"{% endif %}>Jurisdictions</a>
+        <a href="/metrics" {% if request.path.startswith('/metrics') %}class="active"{% endif %}>Metrics</a>
         <div class="nav-dropdown">
           <button type="button" class="nav-dropdown-toggle" onclick="toggleDiagramsMenu(event)">Diagrams <span class="chevron">&#9662;</span></button>
           <div id="diagrams-menu" class="nav-dropdown-menu" hidden>
@@ -48,7 +48,7 @@
   <!-- Diagrams modal: docs/ERD.md and docs/WORKFLOW.md, kept in sync by hand -
        same mermaid source as those files, see each doc for the prose walkthrough. -->
   <div id="diagrams-overlay" class="modal-overlay" hidden onclick="if (event.target === this) closeDiagramsModal();">
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Architecture diagrams">
+    <div class="modal diagrams-modal" role="dialog" aria-modal="true" aria-label="Architecture diagrams">
       <div class="modal-header">
         <div class="modal-tabs">
           <button type="button" class="modal-tab active" data-diagram="workflow" onclick="showDiagram('workflow')">Workflow</button>
@@ -58,7 +58,7 @@
       </div>
       <div class="modal-body">
         <div id="diagram-workflow" class="diagram-pane active">
-          <p class="meta">Ingest &rarr; retrieve &rarr; reason &rarr; trace &amp; persist &rarr; continuous re-check. See <span class="mono">docs/WORKFLOW.md</span> for the stage-by-stage notes.</p>
+          <p class="meta">Ingest &rarr; retrieve &rarr; reason &rarr; trace &amp; persist &rarr; continuous re-check.</p>
           <div class="mermaid-output" id="mermaid-output-workflow"></div>
           <script type="text/plain" id="mermaid-source-workflow">
 flowchart TD
@@ -68,6 +68,7 @@ flowchart TD
     classDef persist fill:#1B2430,stroke:#000000,color:#fff,stroke-width:2px
     classDef cont fill:#4C7A5E,stroke:#345741,color:#fff,stroke-width:2px
     classDef decision fill:#F6F3EC,stroke:#1B2430,color:#1B2430,stroke-width:2px
+    classDef freshness fill:#6A4C93,stroke:#4A3268,color:#fff,stroke-width:2px
 
     subgraph S1["1 - INGEST"]
         A["Upload plan set<br/>multi-discipline PDF / spec"]:::ingest --> B["Split into clauses<br/>regex + page/paragraph rules"]:::ingest
@@ -97,6 +98,15 @@ flowchart TD
         M{"Clause content changed?"}:::decision
     end
 
+    subgraph S6["6 - FRESHNESS MONITORING (background, independent of any submission)"]
+        N["Scheduled fetch<br/>ICC daily / Municode every 4h"]:::freshness
+        O["Hash + diff vs.<br/>last snapshot"]:::freshness
+        P[("Snapshot + change record<br/>(every fetch, for audit)")]:::freshness
+        Q["Sync into JURISDICTION_CLAUSE<br/>(Municode only, hash-deduped)"]:::freshness
+        N --> O --> P
+        P -->|"municode source only"| Q
+    end
+
     C --> D
     E --> G
     F --> G
@@ -108,10 +118,10 @@ flowchart TD
     L --> M
     M -->|"no - skip, already reasoned"| K
     M -->|"yes"| C
+    Q -.->|"feeds the same candidate pool as"| E
           </script>
         </div>
         <div id="diagram-erd" class="diagram-pane">
-          <p class="meta">See <span class="mono">docs/ERD.md</span> for the full field-by-field walkthrough.</p>
           <div class="mermaid-output" id="mermaid-output-erd"></div>
           <script type="text/plain" id="mermaid-source-erd">
 erDiagram
@@ -235,9 +245,39 @@ erDiagram
         string jurisdiction_clause_id FK
     }
 
+    FRESHNESS_SOURCE {
+        string id PK
+        string kind
+        string label
+        string jurisdiction_id FK
+        string source_ref
+        int check_interval_seconds
+        datetime created_at
+    }
+
+    FRESHNESS_SNAPSHOT {
+        string id PK
+        string source_id FK
+        datetime fetched_at
+        string content_hash
+        string raw_content_uri
+    }
+
+    FRESHNESS_CHANGE {
+        string id PK
+        string source_id FK
+        datetime detected_at
+        string prev_snapshot_id FK
+        string new_snapshot_id FK
+        string summary
+    }
+
     JURISDICTION ||--o{ JURISDICTION_DOCUMENT : "has reference docs"
     JURISDICTION_DOCUMENT ||--o{ JURISDICTION_CLAUSE : "owns"
     JURISDICTION ||--o{ PROJECT : "governs"
+    JURISDICTION |o--o{ FRESHNESS_SOURCE : "optionally monitored by"
+    FRESHNESS_SOURCE ||--o{ FRESHNESS_SNAPSHOT : "fetched into"
+    FRESHNESS_SOURCE ||--o{ FRESHNESS_CHANGE : "detected on"
 
     PROJECT ||--o{ SUBMISSION : "has revisions"
     PROJECT ||--o{ DOCUMENT_SERIES : "has sheets/specs"

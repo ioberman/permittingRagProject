@@ -47,7 +47,18 @@ def find_candidate_jurisdiction_clauses(
     session: Session, clauses: list[Clause], jurisdiction_id: str, top_n: int = DEFAULT_TOP_N
 ) -> dict[str, list[JurisdictionClause]]:
     """Maps each project Clause.id to its top-N most similar JurisdictionClause
-    rows for the given jurisdiction."""
+    rows for the given jurisdiction - pooling both user-uploaded documents and
+    anything app/freshness/jurisdiction_sync.py has fed in from a scheduled
+    Municode scrape.
+
+    Ranking prefers whichever *source document is more recently confirmed
+    current* on a near-tie (same similarity rounded to 2dp), not "uploaded
+    always wins" - an uploaded doc that's gone stale for months shouldn't
+    outrank scraped content a check re-confirmed as current today, and a
+    fresh upload shouldn't be second-guessed by an older scrape either. A
+    clearly more relevant candidate from either source still surfaces
+    regardless of recency; this only breaks genuine near-ties.
+    """
     jurisdiction_clauses = (
         session.query(JurisdictionClause)
         .join(JurisdictionDocument)
@@ -59,6 +70,7 @@ def find_candidate_jurisdiction_clauses(
         return {}
 
     clause_ids = [jc.id for jc in jurisdiction_clauses]
+    recency = [jc.document.ingested_at for jc in jurisdiction_clauses]
     cached = _jurisdiction_corpus_cache.get(jurisdiction_id)
     model = _get_model()
     if cached is not None and cached[0] == clause_ids:
@@ -72,7 +84,7 @@ def find_candidate_jurisdiction_clauses(
 
     result = {}
     for clause, row in zip(clauses, similarities):
-        ranked = sorted(range(len(row)), key=lambda i: row[i], reverse=True)
+        ranked = sorted(range(len(row)), key=lambda i: (round(float(row[i]), 2), recency[i]), reverse=True)
         indices = [i for i in ranked[:top_n] if row[i] > SIMILARITY_THRESHOLD]
         result[clause.id] = [jurisdiction_clauses[i] for i in indices]
     return result

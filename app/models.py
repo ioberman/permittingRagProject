@@ -59,6 +59,9 @@ class DocType(enum.Enum):
     BIM = "bim"
     PDF_2D = "pdf_2d"
     SPEC = "spec"
+    MUNICODE_SCRAPE = "municode_scrape"  # synthetic JurisdictionDocument fed by
+    # app/freshness/jurisdiction_sync.py, not a real upload - kept distinct so
+    # the jurisdictions page never shows it as if a human had uploaded it.
 
 
 class SubmissionStatus(enum.Enum):
@@ -72,6 +75,7 @@ class ExtractionMethod(enum.Enum):
     SPEC_TEXT = "spec_text"
     IFC_PROPERTY = "ifc_property"
     MANUAL = "manual"
+    MUNICODE_SCRAPE = "municode_scrape"
 
 
 class FlagSeverity(enum.Enum):
@@ -92,6 +96,11 @@ class FlagStatus(enum.Enum):
     ACKNOWLEDGED = "acknowledged"
     RESOLVED = "resolved"
     FALSE_POSITIVE = "false_positive"
+
+
+class FreshnessSourceKind(enum.Enum):
+    MUNICODE = "municode"
+    ICC_PUBLIC = "icc_public"
 
 
 class CheckType(enum.Enum):
@@ -361,3 +370,59 @@ class FlagCitation(Base):
     flag: Mapped["Flag"] = relationship(back_populates="citations")
     clause: Mapped["Clause | None"] = relationship()
     jurisdiction_clause: Mapped["JurisdictionClause | None"] = relationship()
+
+
+class FreshnessSource(Base):
+    """One pollable freshness target. MUNICODE sources are jurisdiction-specific
+    (a county's local amendment ordinance, e.g. on Municode); ICC_PUBLIC sources
+    are not tied to any one jurisdiction (a base model code edition, e.g. IBC,
+    applies across every jurisdiction that's adopted it) - jurisdiction_id is
+    null for those. POC scope only: public/unofficial sources, not the licensed
+    ICC Code Connect / UpCodes APIs a production version would need.
+    """
+
+    __tablename__ = "freshness_sources"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    kind: Mapped[FreshnessSourceKind] = mapped_column(SAEnum(FreshnessSourceKind, native_enum=False))
+    label: Mapped[str]
+    jurisdiction_id: Mapped[str | None] = mapped_column(ForeignKey("jurisdictions.id"), nullable=True)
+    source_ref: Mapped[str]
+    check_interval_seconds: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    jurisdiction: Mapped["Jurisdiction | None"] = relationship()
+    snapshots: Mapped[list["FreshnessSnapshot"]] = relationship(back_populates="source")
+    changes: Mapped[list["FreshnessChange"]] = relationship(back_populates="source")
+
+
+class FreshnessSnapshot(Base):
+    """One fetch of a FreshnessSource's content, hashed and stored via the same
+    content-addressable LocalFileStorage used for project/jurisdiction documents."""
+
+    __tablename__ = "freshness_snapshots"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(ForeignKey("freshness_sources.id"))
+    fetched_at: Mapped[datetime] = mapped_column(default=_now)
+    content_hash: Mapped[str]
+    raw_content_uri: Mapped[str]
+
+    source: Mapped["FreshnessSource"] = relationship(back_populates="snapshots")
+
+
+class FreshnessChange(Base):
+    """A detected content change between two consecutive snapshots of a source.
+    prev_snapshot_id is null for a source's first-ever snapshot - there's
+    nothing to have changed from yet, so no row is written in that case."""
+
+    __tablename__ = "freshness_changes"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(ForeignKey("freshness_sources.id"))
+    detected_at: Mapped[datetime] = mapped_column(default=_now)
+    prev_snapshot_id: Mapped[str | None] = mapped_column(ForeignKey("freshness_snapshots.id"), nullable=True)
+    new_snapshot_id: Mapped[str] = mapped_column(ForeignKey("freshness_snapshots.id"))
+    summary: Mapped[str]
+
+    source: Mapped["FreshnessSource"] = relationship(back_populates="changes")

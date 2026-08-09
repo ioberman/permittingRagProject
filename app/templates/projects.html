@@ -49,7 +49,7 @@
     <td>
       <form method="post" action="/projects/{{ row.id }}/delete" class="delete-project-form" data-project-name="{{ row.name }}">
         <input type="hidden" name="password">
-        <button type="submit" class="btn ghost sm danger">Delete</button>
+        <button type="submit" class="btn ghost sm danger" title="Requires an admin-configured deletion password - there's no per-user login yet, so this is a stopgap against accidental deletes, not a real permission check">Delete</button>
       </form>
     </td>
   </tr>

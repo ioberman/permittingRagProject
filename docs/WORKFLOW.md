@@ -2,7 +2,9 @@
 
 Companion to [ERD.md](ERD.md) (the data model) — this is the *process* a
 submission goes through, end to end. Five stages, with an explicit loop back
-into stage 1 on a new revision.
+into stage 1 on a new revision, plus a sixth stage (freshness monitoring)
+that runs independently in the background, not as part of any submission's
+own path through stages 1-5.
 
 ```mermaid
 flowchart TD
@@ -12,6 +14,7 @@ flowchart TD
     classDef persist fill:#1B2430,stroke:#000000,color:#fff,stroke-width:2px
     classDef cont fill:#4C7A5E,stroke:#345741,color:#fff,stroke-width:2px
     classDef decision fill:#F6F3EC,stroke:#1B2430,color:#1B2430,stroke-width:2px
+    classDef freshness fill:#6A4C93,stroke:#4A3268,color:#fff,stroke-width:2px
 
     subgraph S1["1 - INGEST"]
         A["Upload plan set<br/>multi-discipline PDF / spec"]:::ingest --> B["Split into clauses<br/>regex + page/paragraph rules"]:::ingest
@@ -41,6 +44,15 @@ flowchart TD
         M{"Clause content changed?"}:::decision
     end
 
+    subgraph S6["6 - FRESHNESS MONITORING (background, independent of any submission)"]
+        N["Scheduled fetch<br/>ICC daily / Municode every 4h"]:::freshness
+        O["Hash + diff vs.<br/>last snapshot"]:::freshness
+        P[("Snapshot + change record<br/>(every fetch, for audit)")]:::freshness
+        Q["Sync into JURISDICTION_CLAUSE<br/>(Municode only, hash-deduped)"]:::freshness
+        N --> O --> P
+        P -->|"municode source only"| Q
+    end
+
     C --> D
     E --> G
     F --> G
@@ -52,6 +64,7 @@ flowchart TD
     L --> M
     M -->|"no - skip, already reasoned"| K
     M -->|"yes"| C
+    Q -.->|"feeds the same candidate pool as"| E
 ```
 
 ## Stage notes
@@ -86,6 +99,20 @@ flowchart TD
    Revision diffing (`diff_between_submissions`) and audit export
    (`/projects/<id>/audit-report`, `.csv`) both build on this same
    content-hash identity.
+6. **Freshness monitoring** — a separate background loop (`app/freshness/`),
+   not triggered by any submission or check: a scheduler thread polls each
+   configured source (ICC's edition sitemap daily, a Municode jurisdiction's
+   ordinance chapter every 4h by default) and always records a snapshot,
+   writing a change record only when the fetch's content hash actually
+   differs from the last one. For a Municode source specifically, that fetch
+   is also synced into `JURISDICTION_CLAUSE` (hash-deduped, so unchanged
+   sections don't create duplicate rows) — feeding the *same* candidate pool
+   stage 2's "vs. code" retrieval searches, not just a separate dashboard.
+   ICC sources aren't synced into any clause pool - an edition-year signal
+   isn't clause text to reason over, just a coarse "has the base code
+   revved" indicator. Public/unofficial sources only (POC scope); see
+   `app/freshness/icc.py` and `app/freshness/municode.py` for the
+   fragility/schema-drift caveats on each.
 
 ## Presentation version
 

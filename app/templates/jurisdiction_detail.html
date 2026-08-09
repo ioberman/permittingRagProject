@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}{{ jurisdiction.name }} - Jurisdictions - Plan Review Copilot{% endblock %}
+{% block content %}
+
+<a class="crumb" href="/jurisdictions">&larr; back to jurisdictions</a>
+<div class="eyebrow">Jurisdiction</div>
+<h1 class="serif">{{ jurisdiction.name }}</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<h2>Live monitoring</h2>
+{% if detail.sources %}
+  {% for source in detail.sources %}
+  <div class="card-table">
+    <table class="jurisdictions-table">
+      <tr><th>Source</th><td>{{ source.label }}</td></tr>
+      <tr>
+        <th>Status</th>
+        <td>
+          {% if source.changed_on_last_check %}
+            <span class="status-pill status-acknowledged">changed {{ source.last_change_at.strftime("%Y-%m-%d %H:%M") }}</span>
+          {% elif source.last_checked_at %}
+            <span class="status-pill status-resolved">no change since {{ source.last_checked_at.strftime("%Y-%m-%d %H:%M") }}</span>
+          {% else %}
+            <span class="status-none">not yet checked</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr><th>Last checked</th><td>{{ source.last_checked_at.strftime("%Y-%m-%d %H:%M") if source.last_checked_at else "never" }}</td></tr>
+    </table>
+  </div>
+  {% if source.history %}
+  <p class="meta">Recent changes:</p>
+  <div class="card-table">
+    <table class="jurisdictions-table">
+      <colgroup>
+        <col style="width: 20%">
+        <col style="width: 80%">
+      </colgroup>
+      <tr><th>Detected</th><th>Summary</th></tr>
+      {% for change in source.history %}
+      <tr>
+        <td>{{ change.detected_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>{{ change.summary }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+  {% endfor %}
+{% else %}
+<p class="meta">No live source is being monitored for this jurisdiction yet.</p>
+{% endif %}
+
+<h2>Uploaded documentation</h2>
+<div class="card-table">
+<table class="jurisdictions-table">
+  <colgroup>
+    <col style="width: 40%">
+    <col style="width: 18%">
+    <col style="width: 18%">
+    <col style="width: 24%">
+  </colgroup>
+  <tr><th>Document</th><th>Type</th><th>Clauses</th><th>Ingested</th></tr>
+  {% for row in document_rows %}
+  <tr>
+    <td>{{ row.title }}</td>
+    <td>{{ row.doc_type }}</td>
+    <td>
+      {% if row.clause_count %}<a href="/jurisdictions/documents/{{ row.id }}/clauses">{{ row.clause_count }}</a>{% else %}0{% endif %}
+    </td>
+    <td>{{ row.ingested_at }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="meta">No documents uploaded yet for this jurisdiction.</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<details class="collapsible-form" open id="add-document-section">
+  <summary>Add a document to {{ jurisdiction.name }}</summary>
+  <form method="post" action="/jurisdictions/documents" enctype="multipart/form-data" class="form-body" id="jurisdiction-upload-form">
+    <input type="hidden" name="jurisdiction_name" value="{{ jurisdiction.name }}">
+    <label class="full">Files <span class="meta">(select one or more code books, amendments, or permit guides)</span>
+      <input type="file" name="files" id="jurisdiction-files" multiple required>
+    </label>
+    <div id="jurisdiction-file-rows" class="full"></div>
+    <div class="full"><button type="submit" id="jurisdiction-upload-submit">Add reference document(s)</button></div>
+  </form>
+</details>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const jurisdictionFilesInput = document.getElementById('jurisdiction-files');
+  const jurisdictionFileRows = document.getElementById('jurisdiction-file-rows');
+
+  function titleFromFilename(filename) {
+    const stem = filename.replace(/\.[^.]+$/, '');
+    return stem.replace(/[_-]+/g, ' ').trim();
+  }
+
+  function renderJurisdictionFileRows() {
+    jurisdictionFileRows.replaceChildren();
+    Array.from(jurisdictionFilesInput.files).forEach((file) => {
+      const row = document.createElement('div');
+      row.className = 'batch-row';
+
+      const header = document.createElement('div');
+      header.className = 'batch-row-header';
+      const filename = document.createElement('div');
+      filename.className = 'batch-row-filename';
+      filename.textContent = file.name;
+      header.appendChild(filename);
+
+      const fields = document.createElement('div');
+      fields.className = 'batch-row-fields';
+      const label = document.createElement('label');
+      label.textContent = 'Document title';
+      const title = document.createElement('input');
+      title.name = 'titles';
+      title.value = titleFromFilename(file.name);
+      title.required = true;
+      label.appendChild(title);
+      fields.appendChild(label);
+
+      row.append(header, fields);
+      jurisdictionFileRows.appendChild(row);
+    });
+  }
+
+  jurisdictionFilesInput.addEventListener('change', renderJurisdictionFileRows);
+</script>
+{% endblock %}
