@@ -397,13 +397,16 @@ def test_jurisdiction_batch_document_upload(client):
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert resp.headers["Location"] == "/jurisdictions"
 
     from app.db import get_session
     from app.models import Jurisdiction, JurisdictionDocument, JurisdictionClause
 
     session = get_session()
     jurisdiction = session.query(Jurisdiction).filter_by(name=jurisdiction_name).one()
+    # Redirects to the jurisdiction's own detail page (not the flat list) so
+    # an upload lands you where you can immediately see what you just added -
+    # see app/web.py's add_jurisdiction_document.
+    assert resp.headers["Location"] == f"/jurisdictions/{jurisdiction.id}"
     documents = (
         session.query(JurisdictionDocument)
         .filter_by(jurisdiction_id=jurisdiction.id)

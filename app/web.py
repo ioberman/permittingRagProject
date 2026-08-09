@@ -119,7 +119,16 @@ try:
     ensure_default_sources(_seed_session)
 finally:
     _seed_session.close()
-start_scheduler()
+
+# Unlike AUTO_SEED_ON_START (opt-in, off unless explicitly set), the
+# scheduler is meant to always run in a real deployment - but "always" still
+# has to exclude test runs: importing app.web (e.g. via a Flask test client
+# fixture) would otherwise fire real network requests at Municode/ICC/state
+# government servers on every single `pytest` invocation, in CI and locally.
+# Detecting pytest via sys.modules needs no test-suite or CI configuration to
+# remember, unlike an opt-out env var would.
+if "pytest" not in sys.modules:
+    start_scheduler()
 
 # Tracks checks running in a background thread (see check()/check_cross_discipline()
 # below) so the project page can show "running" and poll instead of a request

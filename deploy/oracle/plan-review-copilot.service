@@ -26,6 +26,12 @@ EnvironmentFile=/opt/plan-review-copilot/.env
 # either commits means they could still collide. If you need more
 # concurrency later, guard AUTO_SEED_ON_START with a real lock (a lockfile
 # or a DB-level advisory lock) rather than just raising this number.
+#
+# The same constraint now also applies to app/freshness/scheduler.py's
+# background thread (started the same way, once per worker process) - two
+# workers would mean two independent schedulers polling the same external
+# sources and writing freshness rows concurrently. Don't raise --workers
+# without solving that too.
 ExecStart=/opt/plan-review-copilot/.venv/bin/gunicorn app.web:app \
     --bind 0.0.0.0:8000 \
     --timeout 120 \
