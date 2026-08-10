@@ -49,6 +49,31 @@ _MUNICODE_JURISDICTIONS = [
         "product_id": 16093,
         "node_id": "CH131COCOUN",
     },
+    {
+        # A second CT jurisdiction alongside Hartford, deliberately - to
+        # exercise the UI for multiple jurisdictions in the same state (map
+        # coloring/tooltip listing more than one entry per state), not
+        # because Bridgeport's coverage gap needed filling on its own.
+        # Chapter-level node, not the Title-15 node it lives under - the
+        # Title-level node only returns table-of-contents entries (empty
+        # Content on every child), confirmed live while setting this up;
+        # only a specific chapter's node returns real section text.
+        "jurisdiction_name": "Bridgeport, CT",
+        "label": "Bridgeport, CT - Building Permits and Fees (Ch. 15.08)",
+        "product_id": 16075,
+        "node_id": "TIT15BUCO_CH15.08BUPEFE",
+    },
+    {
+        # Washington County, not Allegheny County like Marshall Township -
+        # PA has no real county-level Municode clients (confirmed against
+        # the live API - PA building-code enforcement is municipal/township,
+        # not county), so this is the closest real match to "another county
+        # near Pittsburgh": a township in the neighboring county.
+        "jurisdiction_name": "North Strabane Township, Washington County, PA",
+        "label": "North Strabane Township, Washington County, PA - Code Enforcement (Ch. 5)",
+        "product_id": 17363,
+        "node_id": "CH5COEN",
+    },
 ]
 
 # Official state-published building code PDFs - each confirmed by hand
@@ -73,6 +98,13 @@ _STATE_CODE_JURISDICTIONS = [
         "jurisdiction_name": "Jersey City, NJ",
         "label": "New Jersey Uniform Construction Code - Building Subcode (N.J.A.C. 5:23-3)",
         "url": "https://www.nj.gov/dca/codes/codreg/pdf_regs/njac_5_23_3.pdf",
+    },
+    {
+        # Same PDF as Hartford, deliberately - see _ensure_state_code_source's
+        # docstring on why a shared source_ref must not collapse into one row.
+        "jurisdiction_name": "Bridgeport, CT",
+        "label": "Connecticut State Building Code (2022, incl. 2021 IBC portion)",
+        "url": "https://portal.ct.gov/-/media/das/office-of-state-building-inspector/2022-state-codes/2022-csbc-final.pdf",
     },
 ]
 
@@ -122,19 +154,28 @@ def _ensure_municode_source(session, entry: dict) -> None:
 
 
 def _ensure_state_code_source(session, entry: dict) -> None:
-    exists = (
-        session.query(FreshnessSource)
-        .filter_by(kind=FreshnessSourceKind.STATE_CODE_PDF, source_ref=entry["url"])
-        .first()
-    )
-    if exists is not None:
-        return
-
+    """A (kind, source_ref) pair is not unique on its own - the same state
+    code URL is deliberately reused across every jurisdiction in that state
+    that's configured (see the module docstring), so a jurisdiction with no
+    FreshnessSource of its own yet must not be skipped just because some
+    *other* jurisdiction already has a row pointing at the same URL."""
     jurisdiction = session.query(Jurisdiction).filter_by(name=entry["jurisdiction_name"]).first()
     if jurisdiction is None:
         jurisdiction = Jurisdiction(name=entry["jurisdiction_name"])
         session.add(jurisdiction)
         session.flush()  # assigns jurisdiction.id, needed below before commit
+
+    exists = (
+        session.query(FreshnessSource)
+        .filter_by(
+            kind=FreshnessSourceKind.STATE_CODE_PDF,
+            source_ref=entry["url"],
+            jurisdiction_id=jurisdiction.id,
+        )
+        .first()
+    )
+    if exists is not None:
+        return
 
     session.add(
         FreshnessSource(
