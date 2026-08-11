@@ -307,8 +307,11 @@ h2 {
    break-word rule above, which then overflows a fixed-width column right on
    top of the next one - exactly what happened with Municode section titles
    like "Chapter 131 - CONSTRUCTION CODES, UNIFORM", which are full sentences,
-   not short numbered labels. Let this table's labels wrap normally. */
-.clauses-table .label { white-space: normal; }
+   not short numbered labels. audit-table's "Sheet / Clause" column
+   (discipline + sheet number + clause label combined into one cell) hits the
+   same overflow for the same reason - long clause labels there aren't rare.
+   Let both tables' labels wrap normally. */
+.clauses-table .label, .audit-table .label { white-space: normal; }
 
 .clause-search { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
 .clause-search input[type="search"] { width: 22rem; max-width: 60vw; margin-top: 0; }
